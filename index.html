@@ -111,9 +111,10 @@ const NIVEAU = {
   Gevorderd:{kleur:"#fef3d0",tekst:"#7a5c00",border:"#e8c96a",dot:"#c4860a",desc:"Zelfstandig, complexe situaties"},
   Expert:{kleur:"#fce4e4",tekst:"#9b2226",border:"#e07070",dot:"#9b2226",desc:"Strategisch, begeleidt anderen"},
 };
-function buildPrompt(bedrijf,eigen){
+function buildPrompt(bedrijf,eigen,escoSample){
+  const escoHint = escoSample ? `\nJe hebt toegang tot de volledige ESCO-taxonomie in het Nederlands. Gebruik UITSLUITEND skillnamen die exact overeenkomen met een van de volgende ESCO-labels (of zo dicht mogelijk bij). Geef ook altijd de exacte ESCO-code mee (8 tekens).\nVoorbeeldskills uit ESCO: ${escoSample}\n` : "";
   const blok=eigen.trim()?`\nHet bedrijf heet: ${bedrijf||"onbekend"}.\nEigen competentietaal (markeer met "eigen":true):\n${eigen}\n`:"";
-  return `Je bent een expert in functie-analyse en skills-based werken. Je krijgt een functieprofiel en genereert een breakdown.${blok}\nGeef ALLEEN geldig JSON terug. Geen tekst, geen markdown, geen backticks.\n{"functietitel":"string","samenvatting":"string","taken":[{"id":1,"taak":"string","taak_skills":[{"skill":"string","niveau":"Basis|Gevorderd|Expert","esco_label":"string","eigen":false}],"generieke_competenties":[{"competentie":"string","toelichting":"string","eigen":false}]}],"kerncompetenties":[{"competentie":"string","definitie":"string","eigen":false}]}\n5-8 taken, 2-4 skills, 2-3 comp, 4-5 kerncomp. eigen:true alleen als uit eigen competentietaal.`;
+  return `Je bent een expert in functie-analyse en skills-based werken. Je krijgt een functieprofiel en genereert een breakdown.${blok}\nGeef ALLEEN geldig JSON terug. Geen tekst, geen markdown, geen backticks.\n{"functietitel":"string","samenvatting":"string","taken":[{"id":1,"taak":"string","taak_skills":[{"skill":"string","niveau":"Basis|Gevorderd|Expert","esco_label":"string","esco_code":"string","eigen":false}],"generieke_competenties":[{"competentie":"string","toelichting":"string","eigen":false}]}],"kerncompetenties":[{"competentie":"string","definitie":"string","eigen":false}]}\n5-8 taken, 2-4 skills, 2-3 comp, 4-5 kerncomp. eigen:true alleen als uit eigen competentietaal.`;
 }
 function extractJSON(text){
   try{return JSON.parse(text.trim())}catch{}
@@ -154,7 +155,7 @@ function App(){
     try{
       const res=await fetch("/api/proxy",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:4000,system:buildPrompt(bedrijf,eigenTaal),messages:[{role:"user",content:`Analyseer dit functieprofiel:\n\n${input}`}]})
+        body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:4000,system:buildPrompt(bedrijf,eigenTaal,window.escoSample||""),messages:[{role:"user",content:`Analyseer dit functieprofiel:\n\n${input}`}]})
       });
       if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(`API fout ${res.status}: ${e?.error?.message||res.statusText}`);}
       const data=await res.json();
@@ -174,7 +175,6 @@ function App(){
   return <>
     <div className="header">
       <div>
-        <img src="/logo.png" alt="Bright Work Solutions" style={{height:"38px",objectFit:"contain",marginBottom:"6px",display:"block"}}/>
         <div className="eyebrow">ESCO-aligned · Skills Analyse Tool</div>
         <div className="site-title"><span>Functie</span>profiel<br/><em>Decompositor</em></div>
       </div>
@@ -326,6 +326,19 @@ function App(){
   </>;
 }
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+<script>
+// Load ESCO skills database
+fetch('/esco_skills.json')
+  .then(r => r.json())
+  .then(data => {
+    window.escoData = data;
+    // Create a sample of 200 random skills for the prompt hint
+    const shuffled = [...data].sort(() => Math.random() - 0.5).slice(0, 200);
+    window.escoSample = shuffled.map(s => s[0] + ' (' + s[1] + ')').join(', ');
+    console.log('ESCO geladen:', data.length, 'skills');
+  })
+  .catch(e => console.log('ESCO niet geladen:', e));
 </script>
 </body>
 </html> 
