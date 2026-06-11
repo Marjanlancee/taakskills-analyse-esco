@@ -1,43 +1,54 @@
 export const config = { api: { bodyParser: true } };
 
-// ─── ESCO matching ────────────────────────────────────────────────────────────
+// ─── ESCO selectie op basis van functie ──────────────────────────────────────
+function selectEscoSkills(functietitel, taken, escoData, maxSize=400) {
+  if (!escoData || !escoData.length) return [];
+  
+  const titleWords = functietitel.toLowerCase().split(' ').filter(w => w.length > 3);
+  const takenWords = [...new Set(taken.flatMap(t => t.toLowerCase().split(' ').filter(w => w.length > 4)))];
+  
+  // Score every skill
+  const scored = [];
+  for (const s of escoData) {
+    const label = s[0].toLowerCase();
+    let score = 0;
+    for (const w of titleWords) if (label.includes(w)) score += 3;
+    for (const w of takenWords) if (label.includes(w)) score += 1;
+    if (score > 0) scored.push([score, s]);
+  }
+  scored.sort((a, b) => b[0] - a[0]);
+  
+  const selected = scored.slice(0, maxSize - 80).map(x => x[1]);
+  const codes = new Set(selected.map(s => s[1]));
+  
+  // Always add transversal skills (samenwerken, communiceren etc)
+  for (const s of escoData) {
+    if (s[2] === 'tr' && !codes.has(s[1])) {
+      selected.push(s);
+      codes.add(s[1]);
+      if (selected.length >= maxSize) break;
+    }
+  }
+  return selected;
+}
+
+// ─── ESCO fallback matching ───────────────────────────────────────────────────
 function matchEsco(zoekterm, escoData) {
   if (!escoData || !zoekterm) return null;
   const q = zoekterm.toLowerCase().trim();
-  
-  // 1. Exacte match
   let m = escoData.find(s => s[0].toLowerCase() === q);
   if (m) return { label: m[0], code: m[1] };
-  
-  // 2. ESCO label zit volledig in zoekterm
-  m = escoData.find(s => q.includes(s[0].toLowerCase()) && s[0].length > 6);
+  m = escoData.find(s => s[0].toLowerCase() in q && s[0].length > 6);
+  if (!m) m = escoData.find(s => q.includes(s[0].toLowerCase()) && s[0].length > 6);
   if (m) return { label: m[0], code: m[1] };
-  
-  // 3. Zoekterm zit volledig in ESCO label
-  m = escoData.find(s => s[0].toLowerCase().includes(q) && q.length > 5);
-  if (m) return { label: m[0], code: m[1] };
-  
-  // 4. Woordoverlap scoring - gewogen op woordlengte
   const words = q.split(' ').filter(w => w.length > 3);
-  if (words.length === 0) return null;
-  
   let best = null, bestScore = 0;
   for (const s of escoData) {
     const sl = s[0].toLowerCase();
-    // Score = som van lengtes van overeenkomende woorden
-    let score = 0;
-    for (const w of words) {
-      if (sl.includes(w)) score += w.length;
-    }
-    // Bonus als ESCO label ook korte woorden deelt
-    const escoWords = sl.split(' ').filter(w => w.length > 3);
-    for (const ew of escoWords) {
-      if (q.includes(ew)) score += ew.length * 0.5;
-    }
+    let score = words.reduce((acc, w) => acc + (sl.includes(w) ? w.length : 0), 0);
+    score += sl.split(' ').filter(w => w.length > 3 && q.includes(w)).reduce((acc, w) => acc + w.length * 0.5, 0);
     if (score > bestScore) { bestScore = score; best = s; }
   }
-  
-  // Minimale score om valse matches te vermijden
   if (bestScore >= 6 && best) return { label: best[0], code: best[1] };
   return null;
 }
@@ -61,57 +72,59 @@ GEEF ALLEEN GELDIG JSON TERUG. Geen uitleg, geen markdown, geen backticks.
 
 Regels:
 - 20-40 taken, actief geformuleerd
-- bron: "profiel" als taak uit het functieprofiel komt, "beroep" als aangevuld vanuit beroepskennis, "beide" als beide
+- bron: "profiel" als uit vacaturetekst, "beroep" als aangevuld vanuit beroepskennis, "beide" als beide
 - Sorteer van meest naar minst relevant
 - geselecteerd: true voor de top 15 meest relevante taken, false voor de rest`;
 }
 
-// ─── Prompt stap 2: Skills koppelen ──────────────────────────────────────────
-function promptSkills(functietitel, taken, bedrijf, eigenTaal) {
-  const eigenTermen = eigenTaal?.trim() 
+// ─── Prompt stap 2: Skills koppelen met ESCO lijst ───────────────────────────
+function promptSkills(functietitel, taken, bedrijf, eigenTaal, escoSelection) {
+  const eigenTermen = eigenTaal?.trim()
     ? eigenTaal.split(/[,\n]/).map(t => t.trim()).filter(Boolean)
     : [];
   const eigenBlok = eigenTermen.length
-    ? `\nBedrijfsskills van ${bedrijf||"dit bedrijf"} (ALLEEN deze termen krijgen bron:"bedrijf" en eigen:true): ${eigenTermen.join(", ")}\n`
-    : "";
-  const takenlijst = taken.map(t => `${t.id}. ${t.taak}`).join("\n");
+    ? `\nBedrijfsskills van ${bedrijf || 'dit bedrijf'} (ALLEEN deze termen krijgen bron:"bedrijf" en eigen:true):\n${eigenTermen.join(', ')}\n`
+    : '';
+  const takenlijst = taken.map(t => `${t.id}. ${t.taak}`).join('\n');
   
+  // Format ESCO selection as lookup table
+  const escoLijst = escoSelection.slice(0, 350)
+    .map(s => `${s[0]} | ${s[1]}`)
+    .join('\n');
+
   return `Je bent een expert in skills-based werken.
 Functie: ${functietitel}
 ${eigenBlok}
-Koppel voor elke taak hardskills en softskills. Gebruik drie bronnen:
-- bron "profiel": skill staat expliciet in het functieprofiel/vacaturetekst
-- bron "beroep": skill hoort bij het beroep/sector op basis van vakkennis
-- bron "bedrijf": skill komt UITSLUITEND uit de opgegeven bedrijfsskills lijst
+
+VERPLICHT: Gebruik UITSLUITEND de onderstaande ESCO-skills. Kies de best passende skill uit de lijst.
+Geef voor elke skill de exacte naam en code zoals in de lijst staat.
+
+ESCO SKILLS LIJST (naam | code):
+${escoLijst}
 
 BELANGRIJK onderscheid:
-- Hardskills = technische vaardigheden (wat iemand kan doen, bijv. "tekeningen lezen", "bekabeling aansluiten")
-- Softskills = gedragscompetenties (hoe iemand werkt, bijv. "samenwerken", "communiceren", "nauwkeurigheid")
+- Hardskills = technische vaardigheden (WAT iemand kan doen)
+- Softskills = gedragscompetenties (HOE iemand werkt: communiceren, samenwerken, nauwkeurig zijn)
 - Zet NOOIT technische skills bij softskills
-- Softskills zijn altijd gedrag, houding of communicatie
 
-Voor elke skill:
-1. "skill" of "softskill" = vakjargon/praktijknaam
-2. "esco_zoekterm" = officiële Nederlandse ESCO-naam
-3. "bron" = profiel | beroep | bedrijf
-4. "niveau" = Basis | Gevorderd | Expert
-5. eigen:true ALLEEN als bron="bedrijf"
+Drie bronnen:
+- bron "profiel": skill staat expliciet in de vacaturetekst
+- bron "beroep": skill hoort bij het beroep op basis van vakkennis  
+- bron "bedrijf": skill komt uit de bedrijfsskills lijst
 
 Taken:
 ${takenlijst}
 
 GEEF ALLEEN GELDIG JSON TERUG. Geen uitleg, geen markdown, geen backticks.
 
-{"taken":[{"id":1,"hardskills":[{"skill":"vakjargon","esco_zoekterm":"ESCO naam","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}],"softskills":[{"softskill":"gedragscompetentie","esco_zoekterm":"ESCO naam","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}]}]}
+{"taken":[{"id":1,"hardskills":[{"skill":"exacte ESCO naam uit lijst","esco_code":"code uit lijst","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}],"softskills":[{"softskill":"exacte ESCO naam uit lijst","esco_code":"code uit lijst","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}]}]}
 
 Regels:
 - Per taak: 2-3 hardskills, 2 softskills
-- GEEN kerncompetenties sectie
-- Softskills zijn ALTIJD gedragscompetenties, nooit technisch
+- Gebruik ALLEEN skills uit de bovenstaande lijst
 - eigen:true ALLEEN als de term letterlijk in de bedrijfsskills lijst staat
 - Basis=uitvoerend, Gevorderd=zelfstandig, Expert=strategisch`;
 }
-
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
@@ -124,9 +137,7 @@ export default async function handler(req, res) {
     const { stap, functieprofiel, functietitel, taken, bedrijf, eigenTaal, escoData } = req.body;
 
     if (stap === 1) {
-      // Stap 1: Taken genereren
       if (!functieprofiel) return res.status(400).json({ error: 'Geen functieprofiel meegegeven' });
-      
       const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
@@ -142,12 +153,15 @@ export default async function handler(req, res) {
       const raw = (claudeData.content || []).map(i => i.text || '').join('');
       let parsed;
       try { parsed = JSON.parse(raw.trim()); }
-      catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b+1)); }
+      catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b + 1)); }
       return res.status(200).json(parsed);
 
     } else if (stap === 2) {
-      // Stap 2: Skills koppelen
       if (!taken || !functietitel) return res.status(400).json({ error: 'Geen taken meegegeven' });
+      
+      // Select relevant ESCO skills based on function and tasks
+      const taakNamen = taken.map(t => t.taak);
+      const escoSelection = selectEscoSkills(functietitel, taakNamen, escoData || [], 400);
       
       const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -155,7 +169,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({
           model: 'claude-sonnet-4-5',
           max_tokens: 8000,
-          system: promptSkills(functietitel, taken, bedrijf, eigenTaal),
+          system: promptSkills(functietitel, taken, bedrijf, eigenTaal, escoSelection),
           messages: [{ role: 'user', content: 'Koppel ESCO-skills aan deze taken.' }]
         })
       });
@@ -164,22 +178,41 @@ export default async function handler(req, res) {
       const raw = (claudeData.content || []).map(i => i.text || '').join('');
       let parsed;
       try { parsed = JSON.parse(raw.trim()); }
-      catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b+1)); }
+      catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b + 1)); }
 
-      // ESCO matching voor hardskills EN softskills
+      // Verify and enrich: als Claude een code heeft meegegeven, valideer die tegen de database
       if (escoData && Array.isArray(escoData)) {
+        const escoMap = new Map(escoData.map(s => [s[1], s[0]])); // code → label
+        const escoLabelMap = new Map(escoData.map(s => [s[0].toLowerCase(), s[1]])); // label → code
+        
         parsed.taken = (parsed.taken || []).map(t => ({
           ...t,
           hardskills: (t.hardskills || []).map(s => {
-            const match = matchEsco(s.esco_zoekterm || s.skill, escoData);
-            return { ...s, esco_code: match?.code || null, esco_label: match?.label || null, esco_matched: !!match };
+            // If code given by Claude, verify it exists
+            if (s.esco_code && escoMap.has(s.esco_code)) {
+              return { ...s, esco_label: escoMap.get(s.esco_code), esco_matched: true };
+            }
+            // Try to find by label
+            const code = escoLabelMap.get(s.skill.toLowerCase());
+            if (code) return { ...s, esco_code: code, esco_label: s.skill, esco_matched: true };
+            // Fallback matching
+            const match = matchEsco(s.skill, escoData);
+            return match 
+              ? { ...s, esco_code: match.code, esco_label: match.label, esco_matched: true }
+              : { ...s, esco_matched: false };
           }),
           softskills: (t.softskills || []).map(s => {
-            const match = matchEsco(s.esco_zoekterm || s.softskill, escoData);
-            return { ...s, esco_code: match?.code || null, esco_label: match?.label || null, esco_matched: !!match };
+            if (s.esco_code && escoMap.has(s.esco_code)) {
+              return { ...s, esco_label: escoMap.get(s.esco_code), esco_matched: true };
+            }
+            const code = escoLabelMap.get(s.softskill.toLowerCase());
+            if (code) return { ...s, esco_code: code, esco_label: s.softskill, esco_matched: true };
+            const match = matchEsco(s.softskill, escoData);
+            return match
+              ? { ...s, esco_code: match.code, esco_label: match.label, esco_matched: true }
+              : { ...s, esco_matched: false };
           })
         }));
-
       }
       return res.status(200).json(parsed);
 
