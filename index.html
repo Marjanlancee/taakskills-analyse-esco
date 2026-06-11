@@ -343,15 +343,17 @@ function App() {
         {error && <div className="err">⚠ {error}</div>}
 
         <div className="legend">
+          <label className="slabel">Bronlegenda</label>
+          <div className="li"><span style={{fontSize:10}}>📄</span><div><div style={{fontWeight:500}}>Profiel</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit vacature/functieprofiel</div></div></div>
+          <div className="li"><span style={{fontSize:10}}>🔧</span><div><div style={{fontWeight:500}}>Beroep</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit beroeps-/sectorkennis</div></div></div>
+          <div className="li"><span style={{fontSize:10}}>🏢</span><div><div style={{fontWeight:500}}>Bedrijf</div><div style={{fontSize:9,color:"var(--muted)"}}>Jouw bedrijfsskills</div></div></div>
+          <div style={{borderTop:"1px solid var(--border)",paddingTop:10,marginTop:6}}>
           <label className="slabel">Niveaulegenda</label>
           {Object.entries(D).map(([l,d]) => <div key={l} className="li">
             <div className="ld" style={{background:d.d}}/>
             <div><div style={{color:d.t,fontWeight:500}}>{l}</div><div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{d.desc}</div></div>
           </div>)}
-          {heeftEigen && <div className="li" style={{marginTop:4}}>
-            <div className="ld" style={{background:"#c084fc"}}/>
-            <div><div style={{color:"#6b21a8",fontWeight:500}}>Eigen</div><div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>Bedrijfsskill</div></div>
-          </div>}
+          </div>
         </div>
       </aside>
 
@@ -394,7 +396,11 @@ function App() {
                 <div className="taak-body">
                   <div className="taak-naam">{t.taak}</div>
                   <div className="taak-meta">
-                    {t.bron && <span className="tbadge" style={{background:"#e8f0fe",color:"#1a56db",borderColor:"#93b4fd"}}>{t.bron}</span>}
+                    {t.bron && <span className="tbadge" style={{
+                      background:t.bron==="profiel"?"#e8f0fe":t.bron==="beroep"?"#fef3d0":"#f3e8ff",
+                      color:t.bron==="profiel"?"#1a56db":t.bron==="beroep"?"#7a5c00":"#6b21a8",
+                      borderColor:t.bron==="profiel"?"#93b4fd":t.bron==="beroep"?"#e8c96a":"#c084fc"
+                    }}>{t.bron==="profiel"?"📄 profiel":t.bron==="beroep"?"🔧 beroep":"🏢 bedrijf"}</span>}
                     {t.frequentie && <span className="tbadge" style={{background:"var(--bg)",color:"var(--muted)",borderColor:"var(--border)"}}>{t.frequentie}</span>}
                     {t.belang && <span className="tbadge" style={{
                       background:t.belang==="hoog"?"#fce4e4":t.belang==="middel"?"#fef3d0":"#d8f3dc",
@@ -483,7 +489,12 @@ function App() {
                     {(t.softskills||[]).map(c => <div key={c.softskill} className="ci">
                       <span className="cb">◆</span>
                       <div>
-                        <div className="cn">{c.softskill}{c.eigen && <span className="eigen-badge">Eigen</span>}</div>
+                        <div className="cn">
+                          {c.softskill}
+                          {c.bron && <span style={{fontSize:8,padding:"1px 4px",borderRadius:2,border:"1px solid",marginLeft:3,background:c.bron==="profiel"?"#e8f0fe":c.bron==="beroep"?"#fef3d0":"#f3e8ff",color:c.bron==="profiel"?"#1a56db":c.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:c.bron==="profiel"?"#93b4fd":c.bron==="beroep"?"#e8c96a":"#c084fc"}}>{c.bron==="profiel"?"📄":c.bron==="beroep"?"🔧":"🏢"}</span>}
+                          {c.esco_code && <span className="esco-badge">{c.esco_code}</span>}
+                          {c.eigen && <span className="eigen-badge">Bedrijf</span>}
+                        </div>
                         <div className="cd">{c.toelichting}</div>
                       </div>
                     </div>)}
@@ -492,10 +503,18 @@ function App() {
               </div>;
             })}
             {kerncompetenties.length > 0 && <>
-              <div style={{fontSize:9,letterSpacing:".15em",textTransform:"uppercase",color:"var(--muted)",margin:"16px 0 8px"}}>Kerncompetenties</div>
-              {kerncompetenties.map((k,i) => <div key={k.competentie} className="kc" style={{borderColor:k.eigen?"#c084fc":"var(--border)"}}>
-                <div className="kn">{String(i+1).padStart(2,"0")}</div>
-                <div><div className="km">{k.competentie}{k.eigen && <span className="eigen-badge">Eigen</span>}</div><div className="kd">{k.definitie}</div></div>
+              <div style={{fontSize:9,letterSpacing:".15em",textTransform:"uppercase",color:"var(--muted)",margin:"16px 0 8px"}}>Kerncompetenties (softskills op functieniveau)</div>
+              {kerncompetenties.map((k,i) => <div key={k.competentie} className="ci" style={{padding:"8px 11px",border:"1px solid var(--border)",borderRadius:2,marginBottom:5,background:"var(--surface)"}}>
+                <span className="cb">◆</span>
+                <div>
+                  <div className="cn">
+                    {k.competentie}
+                    {k.bron && <span style={{fontSize:8,padding:"1px 4px",borderRadius:2,border:"1px solid",marginLeft:3,background:k.bron==="profiel"?"#e8f0fe":k.bron==="beroep"?"#fef3d0":"#f3e8ff",color:k.bron==="profiel"?"#1a56db":k.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:k.bron==="profiel"?"#93b4fd":k.bron==="beroep"?"#e8c96a":"#c084fc"}}>{k.bron==="profiel"?"📄":k.bron==="beroep"?"🔧":"🏢"}</span>}
+                    {k.esco_code && <span className="esco-badge">{k.esco_code}</span>}
+                    {k.eigen && <span className="eigen-badge">Bedrijf</span>}
+                  </div>
+                  <div className="cd">{k.definitie}</div>
+                </div>
               </div>)}
             </>}
           </div>
@@ -552,7 +571,12 @@ function App() {
                 return <div key={k} className={`def-row ${sel?"selected":""}`} onClick={() => setSelectedDef(p=>({...p,[k]:!p[k]}))}>
                   <div className="def-check">{sel && <span style={{color:"white",fontSize:10}}>✓</span>}</div>
                   <span style={{width:5,height:5,borderRadius:"50%",background:s.eigen?"#c084fc":"#c4860a",flexShrink:0}}/>
-                  <div style={{flex:1,fontSize:11}}>{s.softskill}{s.eigen && <span className="eigen-badge">Eigen</span>}</div>
+                  <div style={{flex:1,fontSize:11}}>
+                    {s.softskill}
+                    {s.bron && <span style={{fontSize:8,padding:"1px 4px",borderRadius:2,border:"1px solid",marginLeft:3,background:s.bron==="profiel"?"#e8f0fe":s.bron==="beroep"?"#fef3d0":"#f3e8ff",color:s.bron==="profiel"?"#1a56db":s.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:s.bron==="profiel"?"#93b4fd":s.bron==="beroep"?"#e8c96a":"#c084fc"}}>{s.bron==="profiel"?"📄":s.bron==="beroep"?"🔧":"🏢"}</span>}
+                    {s.esco_code && <span className="esco-badge">{s.esco_code}</span>}
+                    {s.eigen && <span className="eigen-badge">Bedrijf</span>}
+                  </div>
                 </div>;
               })}
             </div>
