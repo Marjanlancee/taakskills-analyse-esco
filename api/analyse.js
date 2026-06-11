@@ -1,197 +1,283 @@
-export const config = { api: { bodyParser: true } };
+// api/analyse.js — Functieprofiel Decompositor
+// ESCO Webservice API v1.2.0 geïntegreerd (live lookup per skill)
+// Vercel serverless function
 
-// ─── ESCO selectie ────────────────────────────────────────────────────────────
-function selectEscoSkills(functietitel, taken, escoData, maxSize=300) {
-  if (!escoData || !escoData.length) return [];
-  const filtered = escoData.filter(s => s[0].length > 10 && s[0].includes(' '));
-  const titleWords = functietitel.toLowerCase().split(' ').filter(w => w.length > 3);
-  const takenWords = [...new Set(taken.flatMap(t => t.toLowerCase().split(' ').filter(w => w.length > 4)))];
-  const scored = [];
-  for (const s of filtered) {
-    const label = s[0].toLowerCase();
-    let score = titleWords.reduce((a, w) => a + (label.includes(w) ? 3 : 0), 0);
-    score += takenWords.reduce((a, w) => a + (label.includes(w) ? 1 : 0), 0);
-    if (score > 0) scored.push([score, s]);
+const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
+const ESCO_API      = 'https://ec.europa.eu/esco/api';
+const ESCO_VERSION  = '1.2.0';
+
+// ─── ESCO live lookup ────────────────────────────────────────────────────────
+
+async function escoZoekSkill(skillNaam, taal = 'nl') {
+  try {
+    const params = new URLSearchParams({
+      text:            skillNaam,
+      language:        taal,
+      type:            'skill',
+      selectedVersion: ESCO_VERSION,
+      limit:           '5',
+    });
+
+    const res = await fetch(`${ESCO_API}/search?${params}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(4000), // 4 sec timeout per skill
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const hits = data?._embedded?.results ?? [];
+    if (hits.length === 0) return null;
+
+    const top = hits[0];
+
+    // URI bevat de ESCO-code (laatste deel na laatste /)
+    const uri        = top.uri ?? '';
+    const escoCode   = uri.split('/').pop() ?? null;
+    const score      = Math.round((top.score ?? 0.8) * 100);
+
+    // Preferredlabel in NL, fallback EN
+    const label =
+      top.preferredLabel?.nl ??
+      top.preferredLabel?.en ??
+      top.title ??
+      skillNaam;
+
+    // Definitie
+    const definitie =
+      top.description?.nl?.literal ??
+      top.description?.en?.literal ??
+      null;
+
+    return {
+      esco_uri:        uri,
+      esco_code:       escoCode,
+      esco_label:      label,
+      esco_definitie:  definitie,
+      esco_matched:    true,
+      esco_confidence: score,
+    };
+  } catch {
+    return null;
   }
-  scored.sort((a, b) => b[0] - a[0]);
-  const selected = scored.slice(0, maxSize - 50).map(x => x[1]);
-  const codes = new Set(selected.map(s => s[1]));
-  for (const s of filtered) {
-    if (s[2] === 'tr' && !codes.has(s[1]) && selected.length < maxSize) {
-      selected.push(s); codes.add(s[1]);
+}
+
+// Batch: alle skills tegelijk opzoeken (parallel, met fallback bij mislukking)
+async function verrijkSkillsMetEsco(skills, taal = 'nl') {
+  const resultaten = await Promise.allSettled(
+    skills.map(s => escoZoekSkill(s, taal))
+  );
+
+  const map = {};
+  skills.forEach((skill, i) => {
+    map[skill] =
+      resultaten[i].status === 'fulfilled' && resultaten[i].value
+        ? resultaten[i].value
+        : { esco_code: null, esco_label: skill, esco_definitie: null, esco_matched: false, esco_confidence: 0 };
+  });
+  return map;
+}
+
+// ─── Claude API aanroep ──────────────────────────────────────────────────────
+
+async function vraagClaude(systeemPrompt, gebruikersBericht, apiKey) {
+  const res = await fetch(ANTHROPIC_API, {
+    method: 'POST',
+    headers: {
+      'Content-Type':      'application/json',
+      'x-api-key':         apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model:      'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      system:     systeemPrompt,
+      messages:   [{ role: 'user', content: gebruikersBericht }],
+    }),
+  });
+
+  if (!res.ok) {
+    const fout = await res.text();
+    throw new Error(`Claude API fout: ${res.status} — ${fout}`);
+  }
+
+  const data = await res.json();
+  const tekst = data.content?.[0]?.text ?? '';
+
+  // JSON extraheren (Claude omhult soms met ```json ... ```)
+  const match = tekst.match(/```json\s*([\s\S]*?)\s*```/) ?? tekst.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  const jsonTekst = match ? match[1] ?? match[0] : tekst;
+
+  try {
+    return JSON.parse(jsonTekst);
+  } catch {
+    throw new Error('Claude gaf geen geldig JSON terug: ' + tekst.slice(0, 300));
+  }
+}
+
+// ─── Stap 1: Taken genereren ─────────────────────────────────────────────────
+
+async function genereerTaken(functieprofiel, bedrijf, eigenTaal, apiKey) {
+  const sys = `Je bent een expert in functie-analyse en skills-based werken. 
+Je analyseert functieprofielen en genereert een gestructureerde takenlijst in het Nederlands.
+Geef ALLEEN geldige JSON terug, geen markdown of toelichting buiten de JSON.`;
+
+  const prompt = `Analyseer dit functieprofiel en genereer een takenlijst:
+
+FUNCTIEPROFIEL:
+${functieprofiel}
+
+${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}
+${eigenTaal ? `BEDRIJFSEIGEN TERMEN: ${eigenTaal}` : ''}
+
+Geef terug als JSON:
+{
+  "functietitel": "string",
+  "samenvatting": "string (max 2 zinnen)",
+  "vergelijkbare_titels": ["string"],
+  "taken": [
+    {
+      "id": "T01",
+      "taak": "Concrete taakomschrijving",
+      "bron": "profiel|beroep|bedrijf",
+      "frequentie": "dagelijks|wekelijks|maandelijks",
+      "belang": "hoog|middel|laag",
+      "geselecteerd": true
     }
-  }
-  return selected;
+  ]
 }
 
-// ─── ESCO lookup ──────────────────────────────────────────────────────────────
-function lookupEsco(name, escoData, escoSelection, escoLabelMap) {
-  if (!name) return null;
-  const q = name.toLowerCase().trim();
-  
-  // 1. Exact match in database
-  const exactCode = escoLabelMap.get(q);
-  if (exactCode) {
-    const s = escoData.find(x => x[1] === exactCode);
-    return { code: exactCode, label: name, definitie: s?.[3] || '', confidence: 100 };
-  }
-  
-  // 2. Exact in selectie
-  const inSel = escoSelection.find(s => s[0].toLowerCase() === q);
-  if (inSel) return { code: inSel[1], label: inSel[0], definitie: inSel[3] || '', confidence: 100 };
-  
-  // 3. Naam bevat ESCO-label (langste match)
-  const contains = escoSelection.filter(s => q.includes(s[0].toLowerCase()) && s[0].length > 10);
-  if (contains.length) {
-    contains.sort((a, b) => b[0].length - a[0].length);
-    return { code: contains[0][1], label: contains[0][0], definitie: contains[0][3] || '', confidence: 85 };
-  }
-  
-  // 4. ESCO-label bevat naam (kortste match)
-  const reverse = escoSelection.filter(s => s[0].toLowerCase().includes(q) && q.length > 8);
-  if (reverse.length) {
-    reverse.sort((a, b) => a[0].length - b[0].length);
-    return { code: reverse[0][1], label: reverse[0][0], definitie: reverse[0][3] || '', confidence: 80 };
-  }
-  
-  // 5. Woordoverlap
-  const words = q.split(' ').filter(w => w.length > 4);
-  if (words.length >= 2) {
-    let best = null, bestScore = 0;
-    for (const s of escoSelection) {
-      const sl = s[0].toLowerCase();
-      const score = words.reduce((a, w) => a + (sl.includes(w) ? w.length : 0), 0);
-      if (score > bestScore) { bestScore = score; best = s; }
+Genereer 8-15 taken. Wees concreet en actiegericht.`;
+
+  return vraagClaude(sys, prompt, apiKey);
+}
+
+// ─── Stap 2: Skills koppelen + ESCO live verrijking ──────────────────────────
+
+async function koppelSkills(functietitel, taken, bedrijf, eigenTaal, apiKey) {
+  const sys = `Je bent een ESCO-expert en skills-analist. 
+Je koppelt concrete taken aan hardskills en softskills.
+Geef ALLEEN geldige JSON terug. Geen markdown of tekst buiten de JSON.`;
+
+  const takenTekst = taken.map(t => `- ${t.id}: ${t.taak}`).join('\n');
+
+  const prompt = `Koppel ESCO-skills aan deze taken voor functie: ${functietitel}
+
+TAKEN:
+${takenTekst}
+
+${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}
+${eigenTaal ? `BEDRIJFSEIGEN TERMEN (markeer als eigen:true): ${eigenTaal}` : ''}
+
+Geef terug als JSON:
+{
+  "kerncompetenties": [
+    {
+      "naam": "string",
+      "omschrijving": "string",
+      "toelichting": "string"
     }
-    if (bestScore >= 10 && best) return { code: best[1], label: best[0], definitie: best[3] || '', confidence: 60 };
-  }
-  return null;
+  ],
+  "taken": [
+    {
+      "id": "T01",
+      "hardskills": [
+        {
+          "skill": "Exacte Nederlandse skilnaam",
+          "niveau": "Basis|Gevorderd|Expert",
+          "bron": "profiel|beroep|bedrijf",
+          "toelichting": "string",
+          "eigen": false
+        }
+      ],
+      "softskills": [
+        {
+          "softskill": "Exacte softskill naam",
+          "niveau": "Basis|Gevorderd|Expert",
+          "bron": "profiel|beroep|bedrijf",
+          "toelichting": "string",
+          "eigen": false
+        }
+      ]
+    }
+  ]
 }
 
-// ─── Prompts ──────────────────────────────────────────────────────────────────
-function promptTaken(bedrijf, eigenTaal) {
-  const eigenBlok = eigenTaal?.trim()
-    ? `\nHet bedrijf heet: ${bedrijf || 'onbekend'}.\nBedrijfsskills: ${eigenTaal}\n` : '';
-  return `Je bent een expert in functie-analyse.
-${eigenBlok}
-Analyseer het functieprofiel en genereer een uitgebreide takenlijst van 20-40 taken.
-Gebruik:
-- Taken die expliciet in het functieprofiel staan (bron: "profiel")
-- Taken die logisch horen bij dit beroep op basis van vakkennis (bron: "beroep")
-- Taken die gangbaar zijn in vergelijkbare functies en sectoren (bron: "beroep")
-Denk aan: uitvoering, voorbereiding, veiligheid, kwaliteit, administratie, overleg, klantcontact, coaching.
+Regels:
+- 3-6 hardskills en 2-4 softskills per taak
+- Gebruik precieze, gangbare Nederlandse terminologie (zodat ESCO-matching werkt)
+- Markeer bedrijfseigen termen als eigen:true
+- Geen ESCO-codes invullen — die worden automatisch opgezocht`;
 
-GEEF ALLEEN GELDIG JSON TERUG. Geen uitleg, geen markdown, geen backticks.
+  const claudeResultaat = await vraagClaude(sys, prompt, apiKey);
 
-{"functietitel":"string","samenvatting":"string","vergelijkbare_titels":["string"],"taken":[{"id":1,"taak":"string","bron":"profiel|beroep|beide","frequentie":"dagelijks|wekelijks|maandelijks|incidenteel","belang":"hoog|middel|laag","vakmanschap":"hoog|middel|laag","geselecteerd":true}]}
+  // ── ESCO live verrijking ──────────────────────────────────────────────────
+  // Verzamel alle unieke hardskills + softskills
+  const alleHardskills = [...new Set(
+    (claudeResultaat.taken ?? []).flatMap(t => (t.hardskills ?? []).map(s => s.skill))
+  )];
+  const alleSoftskills = [...new Set(
+    (claudeResultaat.taken ?? []).flatMap(t => (t.softskills ?? []).map(s => s.softskill))
+  )];
 
-- 20-40 taken, actief geformuleerd
-- geselecteerd: true voor top 15, false voor de rest`;
+  // Parallel ESCO lookups voor hard- én softskills
+  const [escoHard, escoSoft] = await Promise.all([
+    verrijkSkillsMetEsco(alleHardskills, 'nl'),
+    verrijkSkillsMetEsco(alleSoftskills, 'nl'),
+  ]);
+
+  // Verrijking terugschrijven naar het resultaat
+  const verrijktResultaat = {
+    ...claudeResultaat,
+    taken: (claudeResultaat.taken ?? []).map(taak => ({
+      ...taak,
+      hardskills: (taak.hardskills ?? []).map(s => ({
+        ...s,
+        ...(escoHard[s.skill] ?? {}),
+      })),
+      softskills: (taak.softskills ?? []).map(s => ({
+        ...s,
+        ...(escoSoft[s.softskill] ?? {}),
+      })),
+    })),
+  };
+
+  return verrijktResultaat;
 }
 
-function promptSkills(functietitel, taken, bedrijf, eigenTaal, escoSelection) {
-  const eigenTermen = eigenTaal?.trim()
-    ? eigenTaal.split(/[,\n]/).map(t => t.trim()).filter(Boolean) : [];
-  const eigenBlok = eigenTermen.length
-    ? `\nBedrijfsskills van ${bedrijf||'dit bedrijf'} (eigen:true, bron:"bedrijf"): ${eigenTermen.join(', ')}\n` : '';
-  const takenlijst = taken.map(t => `${t.id}. ${t.taak}`).join('\n');
-  const escoLijst = escoSelection.map(s => s[0]).join('\n');
+// ─── Vercel handler ──────────────────────────────────────────────────────────
 
-  return `Je bent een expert in skills-based werken.
-Functie: ${functietitel}
-${eigenBlok}
-Koppel ESCO-skills aan taken. Gebruik UITSLUITEND namen uit de onderstaande ESCO-lijst.
-Kopieer de naam EXACT zoals in de lijst — geen verkorte of aangepaste versies.
-
-ESCO LIJST:
-${escoLijst}
-
-Onderscheid:
-- Hardskills = technische vaardigheden (WAT iemand doet)
-- Softskills = gedragscompetenties (HOE iemand werkt: communiceren, samenwerken, nauwkeurig zijn)
-
-Bronnen: "profiel"=in vacaturetekst, "beroep"=hoort bij beroep, "bedrijf"=bedrijfsskill
-eigen:true ALLEEN voor bedrijfsskills
-
-Taken:
-${takenlijst}
-
-GEEF ALLEEN GELDIG JSON TERUG. Geen uitleg, geen markdown, geen backticks.
-
-{"taken":[{"id":1,"hardskills":[{"skill":"exacte ESCO naam","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}],"softskills":[{"softskill":"exacte ESCO naam","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}]}]}
-
-- Per taak: 2-3 hardskills, 2 softskills
-- Kopieer namen EXACT uit de lijst`;
-}
-
-// ─── Handler ──────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Alleen POST' });
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY niet ingesteld in Vercel omgevingsvariabelen' });
 
   try {
-    const { stap, functieprofiel, functietitel, taken, bedrijf, eigenTaal, escoData } = req.body;
+    const { stap, functieprofiel, functietitel, taken, bedrijf, eigenTaal } = req.body ?? {};
 
     if (stap === 1) {
-      if (!functieprofiel) return res.status(400).json({ error: 'Geen functieprofiel meegegeven' });
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 8000, system: promptTaken(bedrijf, eigenTaal), messages: [{ role: 'user', content: `Analyseer dit functieprofiel:\n\n${functieprofiel}` }] })
-      });
-      const d = await r.json();
-      if (d.error) return res.status(500).json({ error: d.error.message });
-      const raw = (d.content || []).map(i => i.text || '').join('');
-      let parsed;
-      try { parsed = JSON.parse(raw.trim()); }
-      catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b + 1)); }
-      return res.status(200).json(parsed);
-
-    } else if (stap === 2) {
-      if (!taken || !functietitel) return res.status(400).json({ error: 'Geen taken meegegeven' });
-
-      const taakNamen = taken.map(t => t.taak);
-      const escoSelection = selectEscoSkills(functietitel, taakNamen, escoData || [], 300);
-      const escoLabelMap = new Map((escoData || []).map(s => [s[0].toLowerCase(), s[1]]));
-
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 8000, system: promptSkills(functietitel, taken, bedrijf, eigenTaal, escoSelection), messages: [{ role: 'user', content: 'Koppel ESCO-skills aan de taken.' }] })
-      });
-      const d = await r.json();
-      if (d.error) return res.status(500).json({ error: d.error.message });
-      const raw = (d.content || []).map(i => i.text || '').join('');
-      let parsed;
-      try { parsed = JSON.parse(raw.trim()); }
-      catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b + 1)); }
-
-      // Enrich met echte ESCO data
-      parsed.taken = (parsed.taken || []).map(t => ({
-        ...t,
-        hardskills: (t.hardskills || []).map(s => {
-          if (s.eigen || s.bron === 'bedrijf') return { ...s, esco_code: null, esco_label: s.skill, esco_definitie: '', esco_matched: false };
-          const found = lookupEsco(s.skill, escoData || [], escoSelection, escoLabelMap);
-          return found
-            ? { ...s, esco_code: found.code, esco_label: found.label, esco_definitie: found.definitie, esco_matched: true, esco_confidence: found.confidence }
-            : { ...s, esco_code: null, esco_label: s.skill, esco_definitie: '', esco_matched: false };
-        }),
-        softskills: (t.softskills || []).map(s => {
-          if (s.eigen || s.bron === 'bedrijf') return { ...s, esco_code: null, esco_label: s.softskill, esco_definitie: '', esco_matched: false };
-          const found = lookupEsco(s.softskill, escoData || [], escoSelection, escoLabelMap);
-          return found
-            ? { ...s, esco_code: found.code, esco_label: found.label, esco_definitie: found.definitie, esco_matched: true, esco_confidence: found.confidence }
-            : { ...s, esco_code: null, esco_label: s.softskill, esco_definitie: '', esco_matched: false };
-        })
-      }));
-
-      return res.status(200).json(parsed);
-    } else {
-      return res.status(400).json({ error: 'Ongeldige stap.' });
+      if (!functieprofiel) return res.status(400).json({ error: 'functieprofiel is verplicht' });
+      const resultaat = await genereerTaken(functieprofiel, bedrijf, eigenTaal, apiKey);
+      return res.status(200).json(resultaat);
     }
+
+    if (stap === 2) {
+      if (!taken?.length) return res.status(400).json({ error: 'taken zijn verplicht' });
+      const resultaat = await koppelSkills(functietitel, taken, bedrijf, eigenTaal, apiKey);
+      return res.status(200).json(resultaat);
+    }
+
+    return res.status(400).json({ error: `Onbekende stap: ${stap}` });
+
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    console.error('Handler fout:', e);
+    return res.status(500).json({ error: e.message ?? 'Onbekende fout' });
   }
-} 
+}
