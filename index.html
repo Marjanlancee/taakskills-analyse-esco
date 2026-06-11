@@ -266,7 +266,7 @@ function App() {
       ["Bedrijfsspecifiek", "ESCO Label", "ESCO Code", "Niveau", "Bron"],
       ...selHard.map(s => [
         s.skill,
-        s.esco_label && s.esco_label !== s.skill ? s.esco_label : s.skill,
+        s.eigen ? (s.esco_label || "") : s.skill,
         s.esco_code || "",
         s.niveau,
         s.eigen ? "🏢 Bedrijf" : s.bron === "profiel" ? "📄 Profiel" : "🔧 Beroep"
@@ -340,7 +340,7 @@ function App() {
                 <strong>Wat vul je hier in?</strong><br/>
                 Termen die jouw organisatie gebruikt maar die niet in standaard vacaturetaal staan:<br/>
                 • <strong>Kernwaarden</strong> zoals "Veiligheid eerst" of "Klantpartnerschap"<br/>
-                • <strong>Bedrijfseigen werkwijzen</strong> zoals "De Hoppenbrouwers-aanpak"<br/>
+                • <strong>Bedrijfseigen werkwijzen</strong> zoals een eigen werkwijze of methodiek<br/>
                 • <strong>Gedragsregels</strong> zoals "Altijd terugkoppelen"<br/><br/>
                 De tool koppelt deze automatisch aan een ESCO-skill én markeert ze als <span className="eigen-badge" style={{marginLeft:0}}>Bedrijf</span> zodat ze herkenbaar blijven.
               </div>
