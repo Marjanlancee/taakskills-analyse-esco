@@ -139,39 +139,41 @@ export default async function handler(req, res) {
         if (!name) return null;
         const q = name.toLowerCase().trim();
         
-        // 1. Exacte match in volledige database
+        // 1. Exacte match in volledige database (100% betrouwbaar)
         const exact = escoLabelMap.get(q);
-        if (exact) return { code: exact, label: name };
+        if (exact) return { code: exact, label: name, confidence: 100 };
         
         // 2. Exacte match in selectie
         const inSel = escoSelection.find(s => s[0].toLowerCase() === q);
-        if (inSel) return { code: inSel[1], label: inSel[0] };
+        if (inSel) return { code: inSel[1], label: inSel[0], confidence: 100 };
         
-        // 3. Selectie bevat zoekterm
-        const contains = escoSelection.filter(s => s[0].toLowerCase().includes(q) && q.length > 8);
+        // 3. Naam bevat ESCO-label (kortste = meest specifiek)
+        const contains = escoData.filter(s => q.includes(s[0].toLowerCase()) && s[0].length > 10);
         if (contains.length) {
-          contains.sort((a, b) => a[0].length - b[0].length);
-          return { code: contains[0][1], label: contains[0][0] };
+          contains.sort((a, b) => b[0].length - a[0].length);
+          return { code: contains[0][1], label: contains[0][0], confidence: 85 };
         }
         
-        // 4. Zoekterm bevat selectie-label
-        const reverse = escoSelection.filter(s => q.includes(s[0].toLowerCase()) && s[0].length > 10);
+        // 4. ESCO-label bevat naam
+        const reverse = escoData.filter(s => s[0].toLowerCase().includes(q) && q.length > 8);
         if (reverse.length) {
-          reverse.sort((a, b) => b[0].length - a[0].length);
-          return { code: reverse[0][1], label: reverse[0][0] };
+          reverse.sort((a, b) => a[0].length - b[0].length);
+          return { code: reverse[0][1], label: reverse[0][0], confidence: 80 };
         }
         
-        // 5. Woordoverlap in selectie (gewogen)
+        // 5. Woordoverlap in volledige database
         const words = q.split(' ').filter(w => w.length > 4);
-        if (words.length) {
+        if (words.length >= 2) {
           let best = null, bestScore = 0;
-          for (const s of escoSelection) {
+          for (const s of escoData) {
             const sl = s[0].toLowerCase();
             const score = words.reduce((a, w) => a + (sl.includes(w) ? w.length : 0), 0);
             if (score > bestScore) { bestScore = score; best = s; }
           }
-          if (bestScore >= 6 && best) return { code: best[1], label: best[0] };
+          if (bestScore >= 10 && best) return { code: best[1], label: best[0], confidence: 60 };
         }
+        
+        // Geen match gevonden
         return null;
       };
 
@@ -201,4 +203,4 @@ export default async function handler(req, res) {
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
-} 
+}
