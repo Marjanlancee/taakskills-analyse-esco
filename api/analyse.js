@@ -50,7 +50,7 @@ function promptSkills(functietitel, taken, bedrijf, eigenTaal, escoSelection) {
     ? `\nBedrijfsskills van ${bedrijf || 'dit bedrijf'} — gebruik de bedrijfsterm als skillnaam, maar kies het bijbehorende ESCO-nummer:\n${eigenTermen.join(', ')}\n` : '';
 
   // Numbered ESCO list
-  const escoLijst = escoSelection.map((s, i) => `${i+1}. ${s[0]}`).join('\n');
+  const escoLijst = escoSelection.map(s => s[0]).join('\n');
   const takenlijst = taken.map(t => `${t.id}. ${t.taak}`).join('\n');
 
   return `Je bent een expert in skills-based werken.
@@ -73,11 +73,11 @@ ${takenlijst}
 
 GEEF ALLEEN GELDIG JSON TERUG. Geen uitleg, geen markdown, geen backticks.
 
-{"taken":[{"id":1,"hardskills":[{"nr":1,"niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}],"softskills":[{"nr":1,"niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}]}]}
+{"taken":[{"id":1,"hardskills":[{"skill":"exacte naam uit lijst","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}],"softskills":[{"softskill":"exacte naam uit lijst","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}]}]}
 
-- Per taak: 2-3 hardskills, 2 softskills
-- Kies het juiste nummer uit de lijst
-- Voor bedrijfsskills: kies het nummer van de best passende ESCO-skill
+- Per taak: 2-3 hardskills, 2 softskills  
+- Kopieer de naam EXACT zoals in de lijst (inclusief spaties en leestekens)
+- Voor bedrijfsskills: kies de best passende ESCO-naam, maar zet bron:"bedrijf" en eigen:true
 - eigen:true ALLEEN voor bedrijfsskills`;
 }
 
@@ -125,42 +125,39 @@ export default async function handler(req, res) {
       try { parsed = JSON.parse(raw.trim()); }
       catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b + 1)); }
 
-      // Vertaal nummers naar echte ESCO data
+      // Vertaal namen naar ESCO codes via exacte lookup
+      const escoLabelMap = new Map(escoData.map(s => [s[0].toLowerCase(), s[1]]));
       const eigenTermen = eigenTaal?.trim()
         ? eigenTaal.split(/[,\n]/).map(t => t.trim()).filter(Boolean) : [];
+
+      const lookupCode = (name) => {
+        // Exacte match
+        const exact = escoLabelMap.get(name.toLowerCase());
+        if (exact) return { code: exact, label: name };
+        // Zoek in selectie
+        const inSelection = escoSelection.find(s => s[0].toLowerCase() === name.toLowerCase());
+        if (inSelection) return { code: inSelection[1], label: inSelection[0] };
+        // Gedeeltelijke match in selectie
+        const partial = escoSelection.find(s => s[0].toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(s[0].toLowerCase()));
+        if (partial) return { code: partial[1], label: partial[0] };
+        return null;
+      };
 
       parsed.taken = (parsed.taken || []).map(t => ({
         ...t,
         hardskills: (t.hardskills || []).map(s => {
-          const idx = (s.nr || 1) - 1;
-          const esco = escoSelection[idx];
-          if (!esco) return { ...s, skill: '?', esco_code: null, esco_matched: false };
-          // Voor bedrijfsskills: gebruik bedrijfsterm als naam, ESCO als label
           const isEigen = s.eigen || s.bron === 'bedrijf';
-          const eigenTerm = isEigen ? eigenTermen.find(t => t.toLowerCase().includes(esco[0].toLowerCase().split(' ')[0])) : null;
-          return {
-            ...s,
-            skill: eigenTerm || esco[0],
-            esco_code: esco[1],
-            esco_label: esco[0],
-            esco_matched: true,
-            eigen: isEigen
-          };
+          const found = lookupCode(s.skill || '');
+          return found
+            ? { ...s, skill: isEigen ? (s.skill || found.label) : found.label, esco_code: found.code, esco_label: found.label, esco_matched: true, eigen: isEigen }
+            : { ...s, esco_code: null, esco_label: null, esco_matched: false };
         }),
         softskills: (t.softskills || []).map(s => {
-          const idx = (s.nr || 1) - 1;
-          const esco = escoSelection[idx];
-          if (!esco) return { ...s, softskill: '?', esco_code: null, esco_matched: false };
           const isEigen = s.eigen || s.bron === 'bedrijf';
-          const eigenTerm = isEigen ? eigenTermen.find(t => t.toLowerCase().includes(esco[0].toLowerCase().split(' ')[0])) : null;
-          return {
-            ...s,
-            softskill: eigenTerm || esco[0],
-            esco_code: esco[1],
-            esco_label: esco[0],
-            esco_matched: true,
-            eigen: isEigen
-          };
+          const found = lookupCode(s.softskill || '');
+          return found
+            ? { ...s, softskill: isEigen ? (s.softskill || found.label) : found.label, esco_code: found.code, esco_label: found.label, esco_matched: true, eigen: isEigen }
+            : { ...s, esco_code: null, esco_label: null, esco_matched: false };
         })
       }));
 
