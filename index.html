@@ -232,7 +232,8 @@ function App() {
 
   const alleSoftskills = skillsData ? [...new Map(
     (skillsData.taken || []).flatMap(t => (t.softskills || []).map(s => ({
-      softskill: s.softskill, eigen: s.eigen || false
+      ...s,
+      niveau: getNiveau(t.id, `soft-${s.softskill}`, s.niveau||"Gevorderd")
     }))).map(s => [s.softskill, s])
   ).values()] : [];
 
@@ -242,36 +243,54 @@ function App() {
   // Export naar Excel
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
+    const datum = new Date().toLocaleDateString('nl-NL');
 
     // Sheet 1: Hardskills
     const hardData = [
-      ["Skill (vakjargon)", "ESCO Label", "ESCO Code", "Niveau", "Type"],
-      ...selHard.map(s => [s.skill, s.esco_label || "", s.esco_code || "", s.niveau, s.eigen ? "Eigen" : "ESCO"])
+      [`Bedrijf: ${bedrijf || "-"}`, "", "", "", ""],
+      [`Functie: ${functietitel}`, "", "", "", ""],
+      [`Datum: ${datum}`, "", "", "", ""],
+      ["", "", "", "", ""],
+      ["Skill (vakjargon)", "ESCO Label", "ESCO Code", "Niveau", "Bron"],
+      ...selHard.map(s => [
+        s.skill,
+        s.esco_label && s.esco_label !== s.skill ? s.esco_label : s.skill,
+        s.esco_code || "",
+        s.niveau,
+        s.eigen ? "🏢 Bedrijf" : s.bron === "profiel" ? "📄 Profiel" : "🔧 Beroep"
+      ])
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hardData), "Hardskills");
 
     // Sheet 2: Softskills
     const softData = [
-      ["Softskill", "Type"],
-      ...selSoft.map(s => [s.softskill, s.eigen ? "Eigen" : "Generiek"])
+      [`Bedrijf: ${bedrijf || "-"}`, "", "", "", ""],
+      [`Functie: ${functietitel}`, "", "", "", ""],
+      [`Datum: ${datum}`, "", "", "", ""],
+      ["", "", "", "", ""],
+      ["Softskill", "ESCO Label", "ESCO Code", "Niveau", "Bron"],
+      ...selSoft.map(s => [
+        s.softskill,
+        s.esco_label && s.esco_label !== s.softskill ? s.esco_label : s.softskill,
+        s.esco_code || "",
+        s.niveau || "Gevorderd",
+        s.eigen ? "🏢 Bedrijf" : s.bron === "profiel" ? "📄 Profiel" : "🔧 Beroep"
+      ])
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(softData), "Softskills");
 
-    // Sheet 3: Alle taken
+    // Sheet 3: Taken
     const takenData = [
+      [`Bedrijf: ${bedrijf || "-"}`, "", "", "", "", ""],
+      [`Functie: ${functietitel}`, "", "", "", "", ""],
+      [`Datum: ${datum}`, "", "", "", "", ""],
+      ["", "", "", "", "", ""],
       ["Nr", "Taak", "Bron", "Frequentie", "Belang", "Vakmanschap"],
       ...geselecteerdeTaken.map(t => [t.id, t.taak, t.bron, t.frequentie, t.belang, t.vakmanschap])
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(takenData), "Taken");
 
-    // Sheet 4: Kerncompetenties
-    const kernData = [
-      ["Kerncompetentie", "Definitie"],
-      ...kerncompetenties.map(k => [k.competentie, k.definitie])
-    ];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kernData), "Kerncompetenties");
-
-    XLSX.writeFile(wb, `Skillset_${functietitel.replace(/\s/g,'_')}.xlsx`);
+    XLSX.writeFile(wb, `Skillset_${bedrijf ? bedrijf.replace(/\s/g,'_')+'_' : ''}${functietitel.replace(/\s/g,'_')}_${datum.replace(/\//g,'-')}.xlsx`);
   };
 
   const D = NIVEAU;
@@ -486,37 +505,39 @@ function App() {
                   </div>
                   <div>
                     <div className="secl">Softskills</div>
-                    {(t.softskills||[]).map(c => <div key={c.softskill} className="ci">
-                      <span className="cb">◆</span>
-                      <div>
-                        <div className="cn">
-                          {c.softskill}
-                          {c.bron && <span style={{fontSize:8,padding:"1px 4px",borderRadius:2,border:"1px solid",marginLeft:3,background:c.bron==="profiel"?"#e8f0fe":c.bron==="beroep"?"#fef3d0":"#f3e8ff",color:c.bron==="profiel"?"#1a56db":c.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:c.bron==="profiel"?"#93b4fd":c.bron==="beroep"?"#e8c96a":"#c084fc"}}>{c.bron==="profiel"?"📄":c.bron==="beroep"?"🔧":"🏢"}</span>}
-                          {c.esco_code && <span className="esco-badge">{c.esco_code}</span>}
-                          {c.eigen && <span className="eigen-badge">Bedrijf</span>}
+                    <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                    {(t.softskills||[]).map(s => {
+                      const cur = getNiveau(t.id, `soft-${s.softskill}`, s.niveau||"Gevorderd");
+                      const d = D[cur];
+                      const val = NIVEAUS.indexOf(cur);
+                      const changed = cur !== (s.niveau||"Gevorderd");
+                      return <div key={s.softskill} className="sk-card" style={{borderColor:s.eigen?"#c084fc":"var(--border)"}}>
+                        <div className="sk-top">
+                          <span className="pd" style={{background:s.eigen?"#c084fc":"#c4860a",width:6,height:6}}/>
+                          <div className="sk-name">
+                            {s.softskill}
+                            {s.bron && <span style={{fontSize:8,padding:"1px 4px",borderRadius:2,border:"1px solid",marginLeft:3,background:s.bron==="profiel"?"#e8f0fe":s.bron==="beroep"?"#fef3d0":"#f3e8ff",color:s.bron==="profiel"?"#1a56db":s.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:s.bron==="profiel"?"#93b4fd":s.bron==="beroep"?"#e8c96a":"#c084fc"}}>{s.bron==="profiel"?"📄":s.bron==="beroep"?"🔧":"🏢"}</span>}
+                            {s.esco_code && <span className="esco-badge">{s.esco_code}</span>}
+                            {s.eigen && <span className="eigen-badge">Bedrijf</span>}
+                            {changed && <span className="was">(was: {s.niveau||"Gevorderd"})</span>}
+                            {s.toelichting && <div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{s.toelichting}</div>}
+                          </div>
+                          <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b}}>{cur}</span>
                         </div>
-                        <div className="cd">{c.toelichting}</div>
-                      </div>
-                    </div>)}
+                        <div className="sl-wrap">
+                          <input type="range" min={0} max={2} step={1} value={val}
+                            style={{background:`linear-gradient(to right,${s.eigen?"#c084fc":d.d} 0%,${s.eigen?"#c084fc":d.d} ${val*50}%,var(--border) ${val*50}%,var(--border) 100%)`}}
+                            onChange={e => setNiveau(t.id, `soft-${s.softskill}`, NIVEAUS[parseInt(e.target.value)])}/>
+                          <div className="sl-labels"><span>Basis</span><span>Gevorderd</span><span>Expert</span></div>
+                        </div>
+                      </div>;
+                    })}
+                    </div>
                   </div>
                 </div>}
               </div>;
             })}
-            {kerncompetenties.length > 0 && <>
-              <div style={{fontSize:9,letterSpacing:".15em",textTransform:"uppercase",color:"var(--muted)",margin:"16px 0 8px"}}>Kerncompetenties (softskills op functieniveau)</div>
-              {kerncompetenties.map((k,i) => <div key={k.competentie} className="ci" style={{padding:"8px 11px",border:"1px solid var(--border)",borderRadius:2,marginBottom:5,background:"var(--surface)"}}>
-                <span className="cb">◆</span>
-                <div>
-                  <div className="cn">
-                    {k.competentie}
-                    {k.bron && <span style={{fontSize:8,padding:"1px 4px",borderRadius:2,border:"1px solid",marginLeft:3,background:k.bron==="profiel"?"#e8f0fe":k.bron==="beroep"?"#fef3d0":"#f3e8ff",color:k.bron==="profiel"?"#1a56db":k.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:k.bron==="profiel"?"#93b4fd":k.bron==="beroep"?"#e8c96a":"#c084fc"}}>{k.bron==="profiel"?"📄":k.bron==="beroep"?"🔧":"🏢"}</span>}
-                    {k.esco_code && <span className="esco-badge">{k.esco_code}</span>}
-                    {k.eigen && <span className="eigen-badge">Bedrijf</span>}
-                  </div>
-                  <div className="cd">{k.definitie}</div>
-                </div>
-              </div>)}
-            </>}
+
           </div>
         </div>}
 
@@ -577,6 +598,7 @@ function App() {
                     {s.esco_code && <span className="esco-badge">{s.esco_code}</span>}
                     {s.eigen && <span className="eigen-badge">Bedrijf</span>}
                   </div>
+                  {(() => { const d = D[s.niveau||"Gevorderd"]; return <span style={{fontSize:9,padding:"2px 7px",borderRadius:2,border:"1px solid",background:d.k,color:d.t,borderColor:d.b,flexShrink:0}}>{s.niveau||"Gevorderd"}</span>; })()}
                 </div>;
               })}
             </div>
