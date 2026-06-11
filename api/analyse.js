@@ -32,24 +32,48 @@ function selectEscoSkills(functietitel, taken, escoData, maxSize=400) {
   return selected;
 }
 
-// ─── ESCO fallback matching ───────────────────────────────────────────────────
+// ─── ESCO matching ────────────────────────────────────────────────────────────
 function matchEsco(zoekterm, escoData) {
   if (!escoData || !zoekterm) return null;
   const q = zoekterm.toLowerCase().trim();
+  
+  // 1. Exact match
   let m = escoData.find(s => s[0].toLowerCase() === q);
   if (m) return { label: m[0], code: m[1] };
-  m = escoData.find(s => s[0].toLowerCase() in q && s[0].length > 6);
-  if (!m) m = escoData.find(s => q.includes(s[0].toLowerCase()) && s[0].length > 6);
-  if (m) return { label: m[0], code: m[1] };
+  
+  // 2. Zoekterm zit volledig in ESCO label (kortste match wint)
+  const containsMatches = escoData.filter(s => s[0].toLowerCase().includes(q) && q.length > 5);
+  if (containsMatches.length) {
+    containsMatches.sort((a, b) => a[0].length - b[0].length); // kortste = meest specifiek
+    return { label: containsMatches[0][0], code: containsMatches[0][1] };
+  }
+  
+  // 3. ESCO label zit volledig in zoekterm (langste match wint)
+  const reverseMatches = escoData.filter(s => q.includes(s[0].toLowerCase()) && s[0].length > 6);
+  if (reverseMatches.length) {
+    reverseMatches.sort((a, b) => b[0].length - a[0].length); // langste = meest specifiek
+    return { label: reverseMatches[0][0], code: reverseMatches[0][1] };
+  }
+  
+  // 4. Word overlap - gewogen, penalty voor irrelevante woorden
   const words = q.split(' ').filter(w => w.length > 3);
+  if (!words.length) return null;
+  
   let best = null, bestScore = 0;
   for (const s of escoData) {
     const sl = s[0].toLowerCase();
-    let score = words.reduce((acc, w) => acc + (sl.includes(w) ? w.length : 0), 0);
-    score += sl.split(' ').filter(w => w.length > 3 && q.includes(w)).reduce((acc, w) => acc + w.length * 0.5, 0);
-    if (score > bestScore) { bestScore = score; best = s; }
+    const slWords = sl.split(' ').filter(w => w.length > 3);
+    const matchedWords = words.filter(w => sl.includes(w));
+    if (!matchedWords.length) continue;
+    
+    // Score = matched word length sum / total esco word count (precision)
+    const matchScore = matchedWords.reduce((a, w) => a + w.length, 0);
+    const precision = matchScore / (slWords.length + 1); // penalty for long ESCO labels
+    
+    if (precision > bestScore) { bestScore = precision; best = s; }
   }
-  if (bestScore >= 6 && best) return { label: best[0], code: best[1] };
+  
+  if (bestScore >= 3 && best) return { label: best[0], code: best[1] };
   return null;
 }
 
@@ -83,7 +107,13 @@ function promptSkills(functietitel, taken, bedrijf, eigenTaal, escoSelection) {
     ? eigenTaal.split(/[,\n]/).map(t => t.trim()).filter(Boolean)
     : [];
   const eigenBlok = eigenTermen.length
-    ? `\nBedrijfsskills van ${bedrijf || 'dit bedrijf'} (ALLEEN deze termen krijgen bron:"bedrijf" en eigen:true):\n${eigenTermen.join(', ')}\n`
+    ? `\nBedrijfsskills van ${bedrijf || 'dit bedrijf'}: ${eigenTermen.join(', ')}
+BELANGRIJK voor bedrijfsskills:
+- Gebruik de bedrijfsterm als "skill" veld (dit is de bedrijfsspecifieke naam)
+- Zoek de best passende ESCO-skill uit de lijst hierboven
+- Vul de OFFICIËLE ESCO-naam in het "skill" veld NIET in — gebruik alleen de bedrijfsterm
+- Geef bron:"bedrijf" en eigen:true
+- Voorbeeld: bedrijfsterm "veldbekabeling" → skill:"veldbekabeling", esco_code:"[code van bekabeling installeren]"\n`
     : '';
   const takenlijst = taken.map(t => `${t.id}. ${t.taak}`).join('\n');
   
@@ -117,11 +147,13 @@ ${takenlijst}
 
 GEEF ALLEEN GELDIG JSON TERUG. Geen uitleg, geen markdown, geen backticks.
 
-{"taken":[{"id":1,"hardskills":[{"skill":"exacte ESCO naam uit lijst","esco_code":"code uit lijst","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}],"softskills":[{"softskill":"exacte ESCO naam uit lijst","esco_code":"code uit lijst","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}]}]}
+{"taken":[{"id":1,"hardskills":[{"skill":"exacte naam uit ESCO lijst hierboven","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}],"softskills":[{"softskill":"exacte naam uit ESCO lijst hierboven","niveau":"Basis|Gevorderd|Expert","toelichting":"kort","bron":"profiel|beroep|bedrijf","eigen":false}]}]}
 
 Regels:
 - Per taak: 2-3 hardskills, 2 softskills
-- Gebruik ALLEEN skills uit de bovenstaande lijst
+- Gebruik ALLEEN skillnamen uit de bovenstaande ESCO lijst
+- Geef GEEN codes terug — codes worden automatisch opgezocht
+- Voor bedrijfsskills: gebruik de bedrijfsterm als skillnaam (niet de ESCO naam)
 - eigen:true ALLEEN als de term letterlijk in de bedrijfsskills lijst staat
 - Basis=uitvoerend, Gevorderd=zelfstandig, Expert=strategisch`;
 }
@@ -180,38 +212,23 @@ export default async function handler(req, res) {
       try { parsed = JSON.parse(raw.trim()); }
       catch { const a = raw.indexOf('{'), b = raw.lastIndexOf('}'); parsed = JSON.parse(raw.slice(a, b + 1)); }
 
-      // Verify and enrich: als Claude een code heeft meegegeven, valideer die tegen de database
+      // Enrich met echte ESCO codes uit database - NOOIT Claude-gegenereerde codes gebruiken
       if (escoData && Array.isArray(escoData)) {
-        const escoMap = new Map(escoData.map(s => [s[1], s[0]])); // code → label
-        const escoLabelMap = new Map(escoData.map(s => [s[0].toLowerCase(), s[1]])); // label → code
+        const escoLabelMap = new Map(escoData.map(s => [s[0].toLowerCase(), s[1]]));
+        
+        const enrichSkill = (name) => {
+          // Altijd opzoeken in database - nooit vertrouwen op Claude-code
+          const exactCode = escoLabelMap.get(name.toLowerCase());
+          if (exactCode) return { esco_code: exactCode, esco_label: name, esco_matched: true };
+          const match = matchEsco(name, escoData);
+          if (match) return { esco_code: match.code, esco_label: match.label, esco_matched: true };
+          return { esco_code: null, esco_label: null, esco_matched: false };
+        };
         
         parsed.taken = (parsed.taken || []).map(t => ({
           ...t,
-          hardskills: (t.hardskills || []).map(s => {
-            // If code given by Claude, verify it exists
-            if (s.esco_code && escoMap.has(s.esco_code)) {
-              return { ...s, esco_label: escoMap.get(s.esco_code), esco_matched: true };
-            }
-            // Try to find by label
-            const code = escoLabelMap.get(s.skill.toLowerCase());
-            if (code) return { ...s, esco_code: code, esco_label: s.skill, esco_matched: true };
-            // Fallback matching
-            const match = matchEsco(s.skill, escoData);
-            return match 
-              ? { ...s, esco_code: match.code, esco_label: match.label, esco_matched: true }
-              : { ...s, esco_matched: false };
-          }),
-          softskills: (t.softskills || []).map(s => {
-            if (s.esco_code && escoMap.has(s.esco_code)) {
-              return { ...s, esco_label: escoMap.get(s.esco_code), esco_matched: true };
-            }
-            const code = escoLabelMap.get(s.softskill.toLowerCase());
-            if (code) return { ...s, esco_code: code, esco_label: s.softskill, esco_matched: true };
-            const match = matchEsco(s.softskill, escoData);
-            return match
-              ? { ...s, esco_code: match.code, esco_label: match.label, esco_matched: true }
-              : { ...s, esco_matched: false };
-          })
+          hardskills: (t.hardskills || []).map(s => ({ ...s, ...enrichSkill(s.skill) })),
+          softskills: (t.softskills || []).map(s => ({ ...s, ...enrichSkill(s.softskill) }))
         }));
       }
       return res.status(200).json(parsed);
@@ -222,4 +239,4 @@ export default async function handler(req, res) {
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
-} 
+}
