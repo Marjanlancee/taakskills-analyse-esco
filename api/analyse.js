@@ -1,5 +1,5 @@
 // api/analyse.js — Functieprofiel Decompositor
-// ESCO matching: Claude kiest uit echte ESCO-skills (niet zelf verzinnen)
+// ESCO: volledige URI + beschrijving, Claude kiest uit echte ESCO-lijst
 
 import fs from 'fs';
 import path from 'path';
@@ -7,6 +7,7 @@ import path from 'path';
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 
 // ─── Laad ESCO bestanden (gecached) ──────────────────────────────────────────
+// Formaat: [label, short_code, type, full_uri, description]
 
 let _hard = null;
 let _soft = null;
@@ -20,13 +21,11 @@ function laadEsco() {
   return { hard: _hard, soft: _soft };
 }
 
-// ─── Selecteer relevante skills voor dit functieprofiel ───────────────────────
+// ─── Selecteer relevante skills op basis van context ─────────────────────────
 
 function selecteerRelevante(functietitel, taken, hard, soft) {
-  // Bouw zoekindex uit functietitel + taken
   const context = [functietitel, ...taken.map(t => t.taak)].join(' ').toLowerCase();
 
-  // Score elke hardskill op basis van woordoverlap met context
   const gescoord = hard.map(row => {
     const label = row[0].toLowerCase();
     const woorden = label.split(/\s+/).filter(w => w.length > 3);
@@ -34,7 +33,6 @@ function selecteerRelevante(functietitel, taken, hard, soft) {
     return { row, score };
   });
 
-  // Top 400 meest relevante hardskills
   gescoord.sort((a, b) => b.score - a.score);
   const topHard = gescoord.slice(0, 400).map(g => g.row);
 
@@ -97,8 +95,11 @@ async function vraagClaude(sys, prompt, apiKey) {
 
 async function genereerTaken(functieprofiel, bedrijf, eigenTaal, apiKey) {
   return vraagClaude(
-    `Je bent expert in functie-analyse. Geef ALLEEN geldige JSON terug, geen markdown.`,
-    `Analyseer dit functieprofiel grondig. Haal ALLE taken op uit het profiel zelf, aangevuld met taken die horen bij dit beroep op basis van sectorkennis.
+    `Je bent expert in functie-analyse en skills-based werken. Geef ALLEEN geldige JSON terug, geen markdown.`,
+    `Analyseer dit functieprofiel grondig. Haal ALLE taken op:
+1. Taken die expliciet in het profiel staan
+2. Taken die standaard bij dit beroep horen (sectorkennis)
+3. Taken die bij de context van het bedrijf horen
 
 FUNCTIEPROFIEL: ${functieprofiel}
 ${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}
@@ -107,7 +108,7 @@ ${eigenTaal ? `BEDRIJFSEIGEN TERMEN: ${eigenTaal}` : ''}
 JSON (direct, geen markdown):
 {"functietitel":"string","samenvatting":"max 2 zinnen","vergelijkbare_titels":["string"],"taken":[{"id":"T01","taak":"concrete taakomschrijving","bron":"profiel|beroep|bedrijf","frequentie":"dagelijks|wekelijks|maandelijks","belang":"hoog|middel|laag","geselecteerd":true}]}
 
-Genereer 10-15 taken. Wees concreet en volledig — combineer het profiel met beroepskennis.`,
+Genereer 15-30 taken afhankelijk van de complexiteit van de functie. Wees volledig en concreet.`,
     apiKey
   );
 }
@@ -118,15 +119,15 @@ async function koppelSkills(functietitel, taken, bedrijf, eigenTaal, apiKey) {
   const { hard, soft } = laadEsco();
   const { topHard, soft: softList } = selecteerRelevante(functietitel, taken, hard, soft);
 
-  // Maak leesbare lijsten voor Claude
-  const hardLijst = topHard.map(r => `${r[0]}|${r[1]}`).join('\n');
-  const softLijst = softList.map(r => `${r[0]}|${r[1]}`).join('\n');
+  // Stuur label|code|definitie mee zodat Claude ook de definitie kent
+  const hardLijst = topHard.map(r => `${r[0]}|${r[1]}|${r[4] ? r[4].slice(0,80) : ''}`).join('\n');
+  const softLijst = softList.map(r => `${r[0]}|${r[1]}|${r[4] ? r[4].slice(0,80) : ''}`).join('\n');
   const takenTekst = taken.map(t => `- ${t.id}: ${t.taak}`).join('\n');
 
   const resultaat = await vraagClaude(
-    `Je bent ESCO-expert. Geef ALLEEN geldige JSON terug, geen markdown.
-KRITIEKE REGEL: kies skills UITSLUITEND uit de meegestuurde ESCO-lijsten.
-Gebruik de exacte label en code zoals opgegeven. Verzin NOOIT zelf skills.
+    `Je bent ESCO-expert en skills-analist. Geef ALLEEN geldige JSON terug, geen markdown.
+KRITIEKE REGEL: gebruik skills UITSLUITEND uit de meegestuurde ESCO-lijsten.
+Gebruik het exacte label en de exacte code. Verzin NOOIT zelf skills of codes.
 MAX 3 hardskills en 2 softskills per taak.`,
 
     `Koppel ESCO-skills aan taken voor: ${functietitel}
@@ -134,12 +135,12 @@ MAX 3 hardskills en 2 softskills per taak.`,
 TAKEN:
 ${takenTekst}
 ${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}
-${eigenTaal ? `BEDRIJFSEIGEN TERMEN (markeer als eigen:true): ${eigenTaal}` : ''}
+${eigenTaal ? `BEDRIJFSEIGEN TERMEN (eigen:true): ${eigenTaal}` : ''}
 
-BESCHIKBARE HARDSKILLS (label|code):
+BESCHIKBARE HARDSKILLS (label|code|definitie-preview):
 ${hardLijst}
 
-BESCHIKBARE SOFTSKILLS (label|code):
+BESCHIKBARE SOFTSKILLS (label|code|definitie-preview):
 ${softLijst}
 
 JSON (direct, geen markdown):
@@ -149,18 +150,18 @@ JSON (direct, geen markdown):
     "id": "T01",
     "hardskills": [{
       "skill": "exacte label uit de lijst",
-      "esco_code": "exacte code uit de lijst",
+      "esco_code": "exacte 8-karakter code uit de lijst",
       "niveau": "Basis|Gevorderd|Expert",
       "bron": "profiel|beroep|bedrijf",
-      "toelichting": "waarom relevant",
+      "toelichting": "waarom relevant voor deze taak",
       "eigen": false
     }],
     "softskills": [{
       "softskill": "exacte label uit de lijst",
-      "esco_code": "exacte code uit de lijst",
+      "esco_code": "exacte 8-karakter code uit de lijst",
       "niveau": "Basis|Gevorderd|Expert",
       "bron": "profiel|beroep|bedrijf",
-      "toelichting": "waarom relevant",
+      "toelichting": "waarom relevant voor deze taak",
       "eigen": false
     }]
   }]
@@ -168,13 +169,19 @@ JSON (direct, geen markdown):
     apiKey
   );
 
-  // Bouw ESCO-lookup voor verificatie en label-invulling
+  // Bouw ESCO-lookup voor volledige verrijking
   const escoLookup = {};
   [...hard, ...soft].forEach(r => {
-    escoLookup[r[1]] = { esco_label: r[0], esco_uri: `http://data.europa.eu/esco/skill/${r[1]}`, esco_matched: true };
+    escoLookup[r[1]] = {
+      esco_label:      r[0],
+      esco_uri:        r[3],
+      esco_definitie:  r[4] || null,
+      esco_matched:    true,
+      esco_confidence: 100,
+    };
   });
 
-  // Verrijk resultaat met ESCO-data (label + uri uit lookup, niet van Claude)
+  // Verrijk resultaat met volledige ESCO-data
   return {
     ...resultaat,
     taken: (resultaat.taken ?? []).map(taak => ({
@@ -183,20 +190,22 @@ JSON (direct, geen markdown):
         const lookup = escoLookup[s.esco_code] ?? {};
         return {
           ...s,
-          esco_label:   lookup.esco_label  ?? s.skill,
-          esco_uri:     lookup.esco_uri    ?? null,
-          esco_matched: lookup.esco_matched ?? false,
-          esco_confidence: lookup.esco_matched ? 100 : 0,
+          esco_label:      lookup.esco_label      ?? s.skill,
+          esco_uri:        lookup.esco_uri        ?? null,
+          esco_definitie:  lookup.esco_definitie  ?? null,
+          esco_matched:    lookup.esco_matched    ?? false,
+          esco_confidence: lookup.esco_confidence ?? 0,
         };
       }),
       softskills: (taak.softskills ?? []).map(s => {
         const lookup = escoLookup[s.esco_code] ?? {};
         return {
           ...s,
-          esco_label:   lookup.esco_label  ?? s.softskill,
-          esco_uri:     lookup.esco_uri    ?? null,
-          esco_matched: lookup.esco_matched ?? false,
-          esco_confidence: lookup.esco_matched ? 100 : 0,
+          esco_label:      lookup.esco_label      ?? s.softskill,
+          esco_uri:        lookup.esco_uri        ?? null,
+          esco_definitie:  lookup.esco_definitie  ?? null,
+          esco_matched:    lookup.esco_matched    ?? false,
+          esco_confidence: lookup.esco_confidence ?? 0,
         };
       }),
     })),
