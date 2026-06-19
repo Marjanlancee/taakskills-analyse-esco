@@ -222,7 +222,7 @@ function App() {
       if (!map.has(s.skill)||(!map.get(s.skill).esco_code&&s.esco_code)) map.set(s.skill,s);
     });
     eigenTermenLijst.forEach(term => {
-      if (!map.has(term)) map.set(term,{skill:term,niveau:"Gevorderd",bron:"bedrijf",eigen:true,lightcast_id:null,lightcast_label:null,lightcast_matched:false});
+      if (!map.has(term)) map.set(term,{skill:term,niveau:"Gevorderd",bron:"bedrijf",eigen:true,esco_code:null,esco_label:null,esco_matched:false});
     });
     return [...map.values()];
   })() : [];
@@ -289,7 +289,10 @@ function App() {
       const titelBlok = `
   <w:p><w:pPr><w:pStyle w:val="Kop1"/><w:spacing w:before="0" w:after="120"/></w:pPr>
     <w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="40"/><w:color w:val="1F3864"/></w:rPr>
-      <w:t>Taakanalyse: ${esc(functietitel)}</w:t></w:r></w:p>
+      <w:t>Taakanalyse ESCO Skills</w:t></w:r></w:p>
+  <w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr>
+    <w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr>
+      <w:t>${esc(functietitel)}</w:t></w:r></w:p>
   <w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr>
     <w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/><w:color w:val="444444"/></w:rPr>
       <w:t xml:space="preserve">Bedrijf: ${esc(bedrijf||'—')}     |     Datum: ${esc(datum)}     |     Bright Work Solutions</w:t></w:r></w:p>
@@ -308,49 +311,59 @@ function App() {
       let taakRijen = `
     <w:tr>
       <w:trPr><w:trHeight w:val="400"/></w:trPr>
-      <w:tc><w:tcPr><w:tcW w:w="500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Nr</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Taak</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="900" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+      <w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
         <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Type</w:t></w:r></w:p></w:tc>
       <w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Skill (NL)</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="1800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Skill (EN)</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="900" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Skill</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>ESCO Code</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
         <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Niveau</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Gekoppelde taken</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="1300" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>ESCO Definitie</w:t></w:r></w:p></w:tc>
     </w:tr>`;
 
-      geselecteerdeTaken.forEach((taak, ti) => {
+      // Per skill - één rij, taken als lijst
+      const wordSkillMap = new Map();
+      geselecteerdeTaken.forEach(taak => {
         const st = skillsPerTaak.get(taak.id);
         const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
         const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
-        const all = [
-          ...hs.map(s=>({ type:'Hard', naam:s.skill, naam_en:s.esco_label||'', niveau:getNiveau(taak.id,s.skill,s.niveau), definitie:s.esco_definitie||'' })),
-          ...ss.map(s=>({ type:'Soft', naam:s.softskill, naam_en:s.esco_label||'', niveau:getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd'), definitie:s.esco_definitie||'' }))
-        ];
-        if (all.length === 0) return;
-        const fill = ti%2===0 ? 'EEF2F7' : 'FFFFFF';
-        all.forEach((s, si) => {
-          taakRijen += `
+        hs.forEach(s => {
+          const key = 'h-' + s.skill;
+          if (!wordSkillMap.has(key)) wordSkillMap.set(key, { type:'Hard', naam:s.skill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,s.skill,s.niveau), taken:[] });
+          wordSkillMap.get(key).taken.push(taak.taak);
+        });
+        ss.forEach(s => {
+          const key = 's-' + s.softskill;
+          if (!wordSkillMap.has(key)) wordSkillMap.set(key, { type:'Soft', naam:s.softskill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd'), taken:[] });
+          wordSkillMap.get(key).taken.push(taak.taak);
+        });
+      });
+
+      let ri = 0;
+      wordSkillMap.forEach(s => {
+        const fill = ri%2===0 ? 'EEF2F7' : 'FFFFFF';
+        taakRijen += `
     <w:tr>
-      <w:tc><w:tcPr><w:tcW w:w="500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t>${si===0?String(ti+1).padStart(2,'0'):''}</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${si===0?esc(taak.taak):''}</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="900" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+      <w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
         <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:color w:val="${s.type==='Hard'?'1F3864':'C4860A'}"/></w:rPr><w:t>${esc(s.type)}</w:t></w:r></w:p></w:tc>
       <w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${esc(s.naam)}</w:t></w:r></w:p>
-        ${s.definitie?`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:i/><w:color w:val="777777"/></w:rPr><w:t xml:space="preserve">${esc(s.definitie.slice(0,120))}${s.definitie.length>120?'...':''}</w:t></w:r></w:p>`:''}
-        </w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="1800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:color w:val="666666"/></w:rPr><w:t xml:space="preserve">${esc(s.naam_en)}</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="900" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t xml:space="preserve">${esc(s.naam)}</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:color w:val="1a56db"/></w:rPr><w:t>${esc(s.code)}</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
         <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t>${esc(s.niveau)}</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        ${s.taken.map((t,i) => `<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="17"/></w:rPr><w:t xml:space="preserve">${i+1}. ${esc(t)}</w:t></w:r></w:p>`).join('')}
+      </w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="1300" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        ${s.definitie?`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:color w:val="444444"/></w:rPr><w:t xml:space="preserve">${esc(s.definitie.slice(0,200))}</w:t></w:r></w:p>`:'<w:p><w:r><w:t></w:t></w:r></w:p>'}
+      </w:tc>
     </w:tr>`;
-        });
+        ri++;
       });
 
 
@@ -477,8 +490,8 @@ function App() {
         i===0?taak.id:'', i===0?taak.taak:'',
         s.type, s.naam,
         s.naam_en||'',
-        s.lightcast_definitie||'',
-        s.lightcast_id||'',
+        s.esco_definitie||'',
+        s.esco_uri||'',
         s.niveau,
         i===0?taak.bron:'', i===0?taak.frequentie:'', i===0?taak.belang:''
       ]));
@@ -502,7 +515,7 @@ function App() {
       ['ESCO URI','De ESCO URI is de unieke, permanente identifier van elke skill in de Europese database. Via deze URI is de skill opzoekbaar op het ESCO-portaal (https://esco.ec.europa.eu).'],
       ['Ook bekend als (vergelijkbare titels)','Gangbare synoniemen en functietitelvarianten gegenereerd door Claude op basis van trainingsdata (functieomschrijvingen, arbeidsmarktliteratuur). Dit zijn modelinschattingen van verwante titels — geen gestandaardiseerde bron.'],
       ['Niveaus (Basis / Gevorderd / Expert)','Claude schat het vereiste niveau per skill per taak in op basis van de taakomschrijving en de context van het profiel. De gebruiker kan niveaus aanpassen via sliders in stap 2. Basis = uitvoerend, onder begeleiding; Gevorderd = zelfstandig, ook complexe situaties; Expert = strategisch, begeleidt anderen.'],
-      ['Bedrijfseigen termen','Termen die de gebruiker zelf invoert als bedrijfsspecifieke competenties of kernwaarden. Deze worden niet gematcht op Lightcast, maar als eigen skill toegevoegd aan de skillset. Herkenbaar via het paarse "Bedrijf"-label.'],
+      ['Bedrijfseigen termen','Termen die de gebruiker zelf invoert als bedrijfsspecifieke competenties of kernwaarden. Deze worden niet gematcht op ESCO, maar als eigen skill toegevoegd aan de skillset. Herkenbaar via het paarse "Bedrijf"-label.'],
       ['',''],
       ['BRONVERMELDING',''],
       ['ESCO database','https://esco.ec.europa.eu/nl'],
@@ -513,7 +526,7 @@ function App() {
     wsMeta['!cols'] = [{wch:35},{wch:90}];
     XLSX.utils.book_append_sheet(wb, wsMeta, 'Methodiek');
 
-    XLSX.writeFile(wb,`Skillset_Lightcast_${bedrijf?bedrijf.replace(/\s/g,'_')+'_':''}${functietitel.replace(/\s/g,'_')}_${datum.replace(/\//g,'-')}.xlsx`);
+    XLSX.writeFile(wb,`Skillset_ESCO_${bedrijf?bedrijf.replace(/\s/g,'_')+'_':''}${functietitel.replace(/\s/g,'_')}_${datum.replace(/\//g,'-')}.xlsx`);
   };
 
   const D = NIVEAU;
@@ -635,7 +648,7 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
           <div className="empty-t">Plak een functieprofiel om te beginnen</div>
           <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",maxWidth:300,lineHeight:1.6,marginTop:8}}>
             Stap 1 → Taken genereren & valideren<br/>
-            Stap 2 → Lightcast skills koppelen<br/>
+            Stap 2 → ESCO-skills koppelen<br/>
             Stap 3 → Definitieve skillset exporteren
           </div>
         </div>}
