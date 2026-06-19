@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Taakanalyse Skills Lightcast</title>
+<title>Taakanalyse Skills ESCO</title>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -88,7 +88,7 @@ textarea::placeholder{color:var(--border-s)}
 .pills{display:flex;flex-wrap:wrap;gap:4px}
 .pill{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:2px;font-size:10px;border:1px solid}
 .pd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
-.lightcast-badge{background:#fff3e0;color:#e65100;border:1px solid #ffb74d;padding:1px 5px;border-radius:2px;font-size:8px;margin-left:3px;font-weight:500}
+.esco-badge{background:#e8f0fe;color:#1a56db;border:1px solid #93b4fd;padding:1px 5px;border-radius:2px;font-size:8px;margin-left:3px;font-weight:500}
 .eigen-badge{background:#f3e8ff;color:#6b21a8;border:1px solid #c084fc;padding:1px 5px;border-radius:2px;font-size:8px;margin-left:3px}
 .no-match{background:#f5f5f5;color:#999;border:1px solid #ddd;padding:1px 5px;border-radius:2px;font-size:8px;margin-left:3px}
 .sk-card{border:1px solid var(--border);background:var(--surface);border-radius:2px;padding:9px 11px;display:flex;flex-direction:column;gap:6px}
@@ -196,11 +196,11 @@ function App() {
 
   const koppelSkills = async () => {
     if (!geselecteerdeTaken.length) return;
-    setLoading(true); setLoadingMsg("Lightcast skills koppelen aan taken..."); setError(null);
+    setLoading(true); setLoadingMsg("ESCO-skills koppelen aan taken..."); setError(null);
     try {
       const res = await fetch('/api/analyse', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ stap:2, functietitel, taken:geselecteerdeTaken, functieprofiel:input, bedrijf, eigenTaal })
+        body: JSON.stringify({ stap:2, functietitel, taken:geselecteerdeTaken, bedrijf, eigenTaal })
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -219,9 +219,7 @@ function App() {
   const alleHardskills = skillsData ? (() => {
     const map = new Map();
     (skillsData.taken||[]).flatMap(t=>(t.hardskills||[]).map(s=>({...s,niveau:getNiveau(t.id,s.skill,s.niveau),taakId:t.id}))).forEach(s=>{
-      if (!map.has(s.skill)||(!map.get(s.skill).lightcast_id&&s.lightcast_id)) {
-        map.set(s.skill,{...s, lightcast_label_nl:s.lightcast_label_nl||s.skill, lightcast_label_en:s.lightcast_label_en||s.skill});
-      }
+      if (!map.has(s.skill)||(!map.get(s.skill).esco_code&&s.esco_code)) map.set(s.skill,s);
     });
     eigenTermenLijst.forEach(term => {
       if (!map.has(term)) map.set(term,{skill:term,niveau:"Gevorderd",bron:"bedrijf",eigen:true,lightcast_id:null,lightcast_label:null,lightcast_matched:false});
@@ -232,9 +230,7 @@ function App() {
   const alleSoftskills = skillsData ? (() => {
     const map = new Map();
     (skillsData.taken||[]).flatMap(t=>(t.softskills||[]).map(s=>({...s,niveau:getNiveau(t.id,`soft-${s.softskill}`,s.niveau||"Gevorderd")}))).forEach(s=>{
-      if (!map.has(s.softskill)||(!map.get(s.softskill).lightcast_id&&s.lightcast_id)) {
-        map.set(s.softskill,{...s, lightcast_label_nl:s.lightcast_label_nl||s.softskill, lightcast_label_en:s.lightcast_label_en||s.softskill});
-      }
+      if (!map.has(s.softskill)||(!map.get(s.softskill).esco_code&&s.esco_code)) map.set(s.softskill,s);
     });
     return [...map.values()];
   })() : [];
@@ -326,44 +322,35 @@ function App() {
         <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Niveau</w:t></w:r></w:p></w:tc>
     </w:tr>`;
 
-      // Bouw skill-gecentreerde Word tabel: één rij per skill, taken als lijst
-      const wordSkillMap = new Map();
-      geselecteerdeTaken.forEach(taak => {
+      geselecteerdeTaken.forEach((taak, ti) => {
         const st = skillsPerTaak.get(taak.id);
         const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
         const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
-        hs.forEach(s => {
-          const key = 'h-' + s.skill;
-          if (!wordSkillMap.has(key)) wordSkillMap.set(key, { type:'Hard', naam:s.lightcast_label_nl||s.skill, naam_en:s.lightcast_label_en||'', definitie:s.lightcast_definitie||'', niveau:getNiveau(taak.id,s.skill,s.niveau), taken:[] });
-          wordSkillMap.get(key).taken.push(taak.taak);
-        });
-        ss.forEach(s => {
-          const key = 's-' + s.softskill;
-          if (!wordSkillMap.has(key)) wordSkillMap.set(key, { type:'Soft', naam:s.lightcast_label_nl||s.softskill, naam_en:s.lightcast_label_en||'', definitie:s.lightcast_definitie||'', niveau:getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd'), taken:[] });
-          wordSkillMap.get(key).taken.push(taak.taak);
-        });
-      });
-
-      let ri = 0;
-      wordSkillMap.forEach(s => {
-        const fill = ri%2===0 ? 'EEF2F7' : 'FFFFFF';
-        const takenLijst = s.taken.map((t,i) => `${i+1}. ${t}`).join('&#10;');
-        taakRijen += `
+        const all = [
+          ...hs.map(s=>({ type:'Hard', naam:s.skill, naam_en:s.esco_label||'', niveau:getNiveau(taak.id,s.skill,s.niveau), definitie:s.esco_definitie||'' })),
+          ...ss.map(s=>({ type:'Soft', naam:s.softskill, naam_en:s.esco_label||'', niveau:getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd'), definitie:s.esco_definitie||'' }))
+        ];
+        if (all.length === 0) return;
+        const fill = ti%2===0 ? 'EEF2F7' : 'FFFFFF';
+        all.forEach((s, si) => {
+          taakRijen += `
     <w:tr>
+      <w:tc><w:tcPr><w:tcW w:w="500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t>${si===0?String(ti+1).padStart(2,'0'):''}</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${si===0?esc(taak.taak):''}</w:t></w:r></w:p></w:tc>
       <w:tc><w:tcPr><w:tcW w:w="900" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
         <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:color w:val="${s.type==='Hard'?'1F3864':'C4860A'}"/></w:rPr><w:t>${esc(s.type)}</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="2200" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t xml:space="preserve">${esc(s.naam)}</w:t></w:r></w:p>
-        ${s.naam_en?`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:i/><w:color w:val="888888"/></w:rPr><w:t xml:space="preserve">EN: ${esc(s.naam_en)}</w:t></w:r></w:p>`:''}
-        ${s.definitie?`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:color w:val="555555"/></w:rPr><w:t xml:space="preserve">${esc(s.definitie.slice(0,150))}${s.definitie.length>150?'...':''}</w:t></w:r></w:p>`:''}
-      </w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+      <w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${esc(s.naam)}</w:t></w:r></w:p>
+        ${s.definitie?`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:i/><w:color w:val="777777"/></w:rPr><w:t xml:space="preserve">${esc(s.definitie.slice(0,120))}${s.definitie.length>120?'...':''}</w:t></w:r></w:p>`:''}
+        </w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="1800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
+        <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:color w:val="666666"/></w:rPr><w:t xml:space="preserve">${esc(s.naam_en)}</w:t></w:r></w:p></w:tc>
+      <w:tc><w:tcPr><w:tcW w:w="900" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
         <w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t>${esc(s.niveau)}</w:t></w:r></w:p></w:tc>
-      <w:tc><w:tcPr><w:tcW w:w="5200" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>
-        ${s.taken.map((t,i) => `<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${i+1}. ${esc(t)}</w:t></w:r></w:p>`).join('')}
-      </w:tc>
     </w:tr>`;
-        ri++;
+        });
       });
 
 
@@ -394,8 +381,8 @@ function App() {
       <w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>
     </w:tblPr>
     <w:tblGrid>
-      <w:gridCol w:w="900"/><w:gridCol w:w="2200"/>
-      <w:gridCol w:w="800"/><w:gridCol w:w="5200"/>
+      <w:gridCol w:w="500"/><w:gridCol w:w="3000"/><w:gridCol w:w="900"/>
+      <w:gridCol w:w="2000"/><w:gridCol w:w="1800"/><w:gridCol w:w="900"/>
     </w:tblGrid>
     ${taakRijen}
   </w:tbl>
@@ -405,7 +392,7 @@ function App() {
       <w:t>2. Geraadpleegde bronnen</w:t></w:r></w:p>
   <w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr>
     <w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr>
-      <w:t>Lightcast Skills Library. (${jaar}). Lightcast Open Skills API. Geraadpleegd op ${esc(datum)}, van https://lightcast.io</w:t></w:r></w:p>
+      <w:t>ESCO database. (${jaar}). European Skills, Competences, Qualifications and Occupations. Geraadpleegd op ${esc(datum)}, van https://esco.ec.europa.eu</w:t></w:r></w:p>
   <w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr>
     <w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr>
       <w:t>Anthropic. (${jaar}). Claude AI (claude-sonnet-4-6). Geraadpleegd op ${esc(datum)}, van https://www.anthropic.com</w:t></w:r></w:p>
@@ -470,68 +457,55 @@ function App() {
       [`Functie: ${functietitel}`,'','','','','','','','','',''],
       [`Datum: ${datum}`,'','','','','','','','','',''],
       ['','','','','','','','','','',''],
-      ['Type','Skill (NL)','Skill (EN)','Niveau','Gekoppelde taken','Lightcast Definitie','Lightcast ID']
+      ['Nr','Taak','Type','Skill','ESCO Label','ESCO Definitie','ESCO URI','Niveau','Bron','Frequentie','Belang']
     ];
-    // Bouw skill-gecentreerde export: één rij per skill, taken als lijst erbij
     const skillsPerTaak = new Map();
     if (skillsData) (skillsData.taken||[]).forEach(t => skillsPerTaak.set(t.id,t));
+    // Alleen geselecteerde skills exporteren
     const geselecteerdeHardNames = new Set(selHard.map(s=>s.skill));
     const geselecteerdeSoftNames = new Set(selSoft.map(s=>s.softskill));
-
-    // Verzamel per skill alle gekoppelde taken
-    const skillTaakMap = new Map();
     geselecteerdeTaken.forEach(taak => {
       const st = skillsPerTaak.get(taak.id);
       const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
       const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
-      hs.forEach(s => {
-        const key = 'h-' + s.skill;
-        if (!skillTaakMap.has(key)) skillTaakMap.set(key, { ...s, type:'Hard', naam:s.lightcast_label_nl||s.skill, naam_en:s.lightcast_label_en||'', taken:[] });
-        skillTaakMap.get(key).taken.push(taak.taak);
-        skillTaakMap.get(key).niveau = getNiveau(taak.id, s.skill, s.niveau);
-      });
-      ss.forEach(s => {
-        const key = 's-' + s.softskill;
-        if (!skillTaakMap.has(key)) skillTaakMap.set(key, { ...s, type:'Soft', naam:s.lightcast_label_nl||s.softskill, naam_en:s.lightcast_label_en||'', taken:[] });
-        skillTaakMap.get(key).taken.push(taak.taak);
-        skillTaakMap.get(key).niveau = getNiveau(taak.id, `soft-${s.softskill}`, s.niveau||'Gevorderd');
-      });
-    });
-
-    skillTaakMap.forEach(s => {
-      rows.push([
-        s.type,
-        s.naam,
+      const all = [
+        ...hs.map(s=>({...s,type:'Hard',naam:s.skill,niveau:getNiveau(taak.id,s.skill,s.niveau)})),
+        ...ss.map(s=>({...s,type:'Soft',naam:s.softskill,niveau:getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd')}))
+      ];
+      if (all.length===0) return;
+      all.forEach((s,i) => rows.push([
+        i===0?taak.id:'', i===0?taak.taak:'',
+        s.type, s.naam,
         s.naam_en||'',
-        s.niveau,
-        s.taken.join(' | '),
         s.lightcast_definitie||'',
         s.lightcast_id||'',
-      ]);
+        s.niveau,
+        i===0?taak.bron:'', i===0?taak.frequentie:'', i===0?taak.belang:''
+      ]));
     });
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:8},{wch:35},{wch:35},{wch:12},{wch:80},{wch:55},{wch:40}];
+    ws['!cols'] = [{wch:4},{wch:45},{wch:6},{wch:35},{wch:35},{wch:55},{wch:60},{wch:12},{wch:10},{wch:12},{wch:8}];
     XLSX.utils.book_append_sheet(wb, ws, 'Functieprofiel Skillset');
 
     // ── Tabblad 2: Methodiek ────────────────────────────────────────────────
     const meta = [
-      ['METHODIEK — Functieprofiel Decompositor (Lightcast)',''],
+      ['METHODIEK — Taakanalyse Skills ESCO',''],
       ['Bright Work Solutions',''],
       ['',''],
       ['ONDERDEEL','TOELICHTING'],
       ['Taken — hoe bepaald?','Claude analyseert het functieprofiel en combineert drie bronnen: (1) taken expliciet vermeld in het ingevoerde profiel, (2) standaardtaken die bij het beroep horen op basis van trainingsdata (beroepsliteratuur, functieomschrijvingen, sectorkennis), (3) taken passend bij de bedrijfscontext indien opgegeven.'],
       ['Frequentie (dagelijks / wekelijks / maandelijks)','Claude schat de frequentie op basis van de aard van de taak. Operationele uitvoeringstaken zijn doorgaans dagelijks, coördinatie- en overlegtaken wekelijks, strategische of rapportagetaken maandelijks. Dit is een modelschatting, geen vaste norm.'],
       ['Bron van beroepen en sectoren','Trainingsdata van Claude — bestaande uit functieomschrijvingen, cao-teksten, beroepsgidsen, sectorrapportages en internationale arbeidsmarktbronnen zoals O*NET (VS) en ISCO (ILO). De tool combineert het ingevoerde profiel met deze achtergrondkennis.'],
-      ['Skills — databron','Alle skills komen uit de Lightcast Skills Library, een commerciële skills-database met meer dan 32.000 gestandaardiseerde skills gericht op de arbeidsmarkt. Zie: https://lightcast.io'],
-      ['Skills — selectie per analyse','Per analyse worden skills opgehaald via de Lightcast Skills API op basis van de functietitel en de gegenereerde taken. Claude kiest vervolgens de meest relevante skills uit deze gefilterde lijst.'],
-      ['Lightcast Definitie','De definities komen rechtstreeks uit de Lightcast Skills Library via de API. Ze zijn niet bewerkt of vertaald.'],
-      ['Lightcast ID','De Lightcast ID is de unieke identifier van elke skill in de Lightcast database. Via deze ID is de skill direct opzoekbaar in Lightcast-producten.'],
+      ['Skills — databron','Alle skills komen uit de officiële ESCO-database (European Skills, Competences, Qualifications and Occupations) van de Europese Commissie, versie 1.2, Nederlands. Zie: https://esco.ec.europa.eu'],
+      ['Skills — selectie (max. 300 per analyse)','Uit de ESCO-database van ca. 14.000 skills worden per analyse de 300 meest relevante geselecteerd op basis van woordoverlap met de functietitel en de gegenereerde taken.'],
+      ['ESCO Definitie','De definities komen rechtstreeks uit de officiële ESCO-datadump (veld: description). Dit zijn de originele Nederlandse ESCO-beschrijvingen.'],
+      ['ESCO URI','De ESCO URI is de unieke, permanente identifier van elke skill in de Europese database. Via deze URI is de skill opzoekbaar op het ESCO-portaal (https://esco.ec.europa.eu).'],
       ['Ook bekend als (vergelijkbare titels)','Gangbare synoniemen en functietitelvarianten gegenereerd door Claude op basis van trainingsdata (functieomschrijvingen, arbeidsmarktliteratuur). Dit zijn modelinschattingen van verwante titels — geen gestandaardiseerde bron.'],
       ['Niveaus (Basis / Gevorderd / Expert)','Claude schat het vereiste niveau per skill per taak in op basis van de taakomschrijving en de context van het profiel. De gebruiker kan niveaus aanpassen via sliders in stap 2. Basis = uitvoerend, onder begeleiding; Gevorderd = zelfstandig, ook complexe situaties; Expert = strategisch, begeleidt anderen.'],
       ['Bedrijfseigen termen','Termen die de gebruiker zelf invoert als bedrijfsspecifieke competenties of kernwaarden. Deze worden niet gematcht op Lightcast, maar als eigen skill toegevoegd aan de skillset. Herkenbaar via het paarse "Bedrijf"-label.'],
       ['',''],
       ['BRONVERMELDING',''],
-      ['Lightcast Skills Library','https://lightcast.io'],
+      ['ESCO database','https://esco.ec.europa.eu/nl'],
       ['O*NET Online (referentie)','https://www.onetonline.org'],
       ['ISCO-08 (referentie)','https://www.ilo.org/ilostat-files/ISCO/newdocs-08-2012/ISCO-08-EN.pdf'],
     ];
@@ -547,8 +521,8 @@ function App() {
     <div className="header">
       <img src="/logo.png" alt="Bright Work Solutions" className="header-logo"/>
       <div className="header-titles">
-        <div className="eyebrow">Taakanalyse · Skills Analyse Tool</div>
-        <div className="site-title"><span>Taakanalyse</span> Skills <em>Lightcast</em></div>
+        <div className="eyebrow">ESCO-aligned · Skills Analyse Tool</div>
+        <div className="site-title"><span>Taakanalyse</span> Skills <em>ESCO</em></div>
       </div>
       <div className="header-bedrijf">
         <input className="field" value={bedrijf} onChange={e=>setBedrijf(e.target.value)} placeholder="Bedrijfsnaam" style={{width:180,fontSize:11}}/>
@@ -621,7 +595,7 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
             {loading&&loadingMsg.includes("taken")?<><span className="spin"/>Laden...</>:"↺ Heranalyseer taken"}
           </button>
           <button className="btn-main" onClick={koppelSkills} disabled={loading||geselecteerdeTaken.length===0} style={{background:"#2d6a4f"}}>
-            {loading&&loadingMsg.includes("Lightcast")?<><span className="spin"/>Lightcast koppelen...</>:`Stap 2: Koppel Lightcast skills (${geselecteerdeTaken.length}) →`}
+            {loading&&loadingMsg.includes("ESCO")?<><span className="spin"/>ESCO koppelen...</>:`Stap 2: Koppel ESCO skills (${geselecteerdeTaken.length}) →`}
           </button>
           {stap>=2&&<button className="btn-main" onClick={()=>setStap(3)} style={{background:"#1a56db"}}>
             Stap 3: Definitieve skillset →
@@ -677,7 +651,7 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
             {vergelijkbareTitels.length>0&&<div className="rv">Ook bekend als: {vergelijkbareTitels.join(" · ")}</div>}
           </div>
           <div style={{padding:"10px 22px",background:"var(--surface)",borderBottom:"1px solid var(--border)",fontSize:10,color:"var(--muted)"}}>
-            Vink de taken aan die van toepassing zijn. Klik daarna op <strong>Stap 2</strong> om Lightcast skills te koppelen.
+            Vink de taken aan die van toepassing zijn. Klik daarna op <strong>Stap 2</strong> om ESCO-skills te koppelen.
           </div>
           {bronnenStatus.length>0&&<div style={{padding:"8px 22px",background:"var(--surface)",borderBottom:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:3}}>
             {bronnenStatus.map((b,i)=><div key={i} style={{fontSize:10,color:b.ok?"#2d6a4f":"#9b2226",display:"flex",gap:6,alignItems:"center"}}>
@@ -743,12 +717,12 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
                           <div className="sk-top">
                             <span className="pd" style={{background:s.eigen?"#c084fc":d.d,width:6,height:6}}/>
                             <div className="sk-name">
-                              {s.lightcast_label_nl||s.skill}
+                              {s.skill}
                               {s.eigen&&<span className="eigen-badge">Eigen</span>}
-                              {!s.eigen&&s.lightcast_matched&&s.lightcast_id&&<span className="lightcast-badge" title={s.lightcast_id}>{s.lightcast_id.slice(0,8)}</span>}
-                              {!s.eigen&&!s.lightcast_matched&&<span className="no-match">geen match</span>}
+                              {!s.eigen&&s.esco_matched&&s.esco_code&&<span className="esco-badge" title={s.esco_uri||''}>{s.esco_code}</span>}
+                              {!s.eigen&&!s.esco_matched&&<span className="no-match">geen ESCO match</span>}
                               {changed&&<span className="was">(was: {s.niveau})</span>}
-                              {s.lightcast_label_en&&<div style={{fontSize:9,color:"#e65100",marginTop:1,opacity:.8}}>EN: {s.lightcast_label_en}</div>}
+                              {s.esco_label&&s.esco_label!==s.skill&&<div style={{fontSize:9,color:"#1a56db",marginTop:1,opacity:.8}}>↳ {s.esco_label}</div>}
                               {s.toelichting&&<div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{s.toelichting}</div>}
                             </div>
                             <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b}}>{cur}</span>
@@ -772,11 +746,11 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
                           <div className="sk-top">
                             <span className="pd" style={{background:"#c4860a",width:6,height:6}}/>
                             <div className="sk-name">
-                              {s.lightcast_label_nl||s.softskill}
-                              {s.lightcast_matched&&s.lightcast_id&&<span className="lightcast-badge">{s.lightcast_id.slice(0,8)}</span>}
-                              {!s.lightcast_matched&&<span className="no-match">geen match</span>}
+                              {s.softskill}
+                              {s.esco_matched&&s.esco_code&&<span className="esco-badge">{s.esco_code}</span>}
+                              {!s.esco_matched&&<span className="no-match">geen ESCO match</span>}
                               {changed&&<span className="was">(was: {s.niveau||"Gevorderd"})</span>}
-                              {s.lightcast_label_en&&<div style={{fontSize:9,color:"#e65100",marginTop:1,opacity:.8}}>EN: {s.lightcast_label_en}</div>}
+                              {s.esco_label&&s.esco_label!==s.skill&&<div style={{fontSize:9,color:"#1a56db",marginTop:1,opacity:.8}}>↳ {s.esco_label}</div>}
                               {s.toelichting&&<div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{s.toelichting}</div>}
                             </div>
                             <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b}}>{cur}</span>
@@ -841,10 +815,10 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
                   <div className="def-check">{sel&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
                   <span className="pd" style={{background:s.eigen?"#c084fc":d.d}}/>
                   <div style={{flex:1,fontSize:11}}>
-                    {s.lightcast_label_nl||s.skill}
+                    {s.skill}
                     {s.eigen&&<span className="eigen-badge">Eigen</span>}
-                    {s.lightcast_id&&<span className="lightcast-badge" title={s.lightcast_id}>{s.lightcast_id.slice(0,8)}</span>}
-                    {s.lightcast_label_en&&<span style={{fontSize:9,color:"#e65100",marginLeft:5,opacity:.8}}>EN: {s.lightcast_label_en}</span>}
+                    {s.esco_code&&<span className="esco-badge" title={s.esco_uri||''}>{s.esco_code}</span>}
+                    {s.esco_label&&s.esco_label!==s.skill&&<span style={{fontSize:9,color:"#1a56db",marginLeft:5,opacity:.8}}>↳ {s.esco_label}</span>}
                   </div>
                   <span style={{fontSize:9,padding:"2px 7px",borderRadius:2,border:"1px solid",background:d.k,color:d.t,borderColor:d.b,flexShrink:0}}>{s.niveau}</span>
                 </div>;
@@ -858,9 +832,8 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
                   <div className="def-check">{sel&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
                   <span style={{width:5,height:5,borderRadius:"50%",background:"#c4860a",flexShrink:0}}/>
                   <div style={{flex:1,fontSize:11}}>
-                    {s.lightcast_label_nl||s.softskill}
-                    {s.lightcast_id&&<span className="lightcast-badge">{s.lightcast_id.slice(0,8)}</span>}
-                    {s.lightcast_label_en&&<span style={{fontSize:9,color:"#e65100",marginLeft:5,opacity:.8}}>EN: {s.lightcast_label_en}</span>}
+                    {s.softskill}
+                    {s.esco_code&&<span className="esco-badge">{s.esco_code}</span>}
                   </div>
                   {(()=>{const d=D[s.niveau||"Gevorderd"];return <span style={{fontSize:9,padding:"2px 7px",borderRadius:2,border:"1px solid",background:d.k,color:d.t,borderColor:d.b,flexShrink:0}}>{s.niveau||"Gevorderd"}</span>;})()}
                 </div>;
