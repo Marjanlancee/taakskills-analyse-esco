@@ -1,5 +1,5 @@
 // api/analyse.js — Taakanalyse Skills ESCO
-// ESCO: volledige URI + beschrijving, Claude kiest uit echte ESCO-lijst
+// GEOPTIMALISEERD: temperature=0, bronnen parallel, 15-25 taken
 
 import fs from 'fs';
 import path from 'path';
@@ -27,8 +27,7 @@ function selecteerRelevante(functietitel, taken, hard, soft) {
     return { row, score };
   });
   gescoord.sort((a, b) => b.score - a.score);
-  const topHard = gescoord.slice(0, 300).map(g => g.row);
-  return { topHard, soft };
+  return { topHard: gescoord.slice(0, 300).map(g => g.row), soft };
 }
 
 function herstelJson(json) {
@@ -53,7 +52,13 @@ async function vraagClaude(sys, prompt, apiKey, maxTokens = 16000) {
   const res = await fetch(ANTHROPIC_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens, system: sys, messages: [{ role: 'user', content: prompt }] }),
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: maxTokens,
+      temperature: 0,
+      system: sys,
+      messages: [{ role: 'user', content: prompt }]
+    }),
   });
   if (!res.ok) throw new Error(`Claude API fout: ${res.status} — ${await res.text()}`);
   const tekst = (await res.json()).content?.[0]?.text ?? '';
@@ -75,7 +80,7 @@ async function haalBronTekstOp(url) {
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html,application/pdf,*/*' },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) { status.melding = `Niet bereikbaar (status ${res.status})`; return { tekst: '', status }; }
     const contentType = res.headers.get('content-type') || '';
@@ -111,21 +116,21 @@ async function haalBronTekstOp(url) {
 async function genereerTaken(functieprofiel, bedrijf, eigenTaal, bronnen, pdfTekst, apiKey) {
   let bronTeksten = '';
   const bronnenStatus = [];
+  // Bronnen parallel ophalen
   if (bronnen && bronnen.length > 0) {
-    for (const url of bronnen.slice(0, 5)) {
-      const { tekst, status } = await haalBronTekstOp(url.trim());
+    const bronResultaten = await Promise.all(bronnen.slice(0, 5).map(url => haalBronTekstOp(url.trim())));
+    bronResultaten.forEach(({ tekst, status }) => {
       bronnenStatus.push(status);
       if (tekst) bronTeksten += tekst + '\n\n';
-    }
+    });
   }
   if (pdfTekst && pdfTekst.trim().length > 50) {
     bronTeksten += `\n\n[Bron PDF upload]\n${pdfTekst.slice(0, 6000)}`;
     bronnenStatus.push({ url: 'PDF upload', ok: true, melding: `${pdfTekst.length} tekens` });
-    console.log(`PDF tekst toegevoegd: ${pdfTekst.length} tekens`);
   }
   const taakResultaat = await vraagClaude(
     'Je bent expert in functie-analyse en skills-based werken. Geef ALLEEN geldige JSON terug, geen markdown.',
-    `Analyseer dit functieprofiel grondig. Haal ALLE taken op:\n1. Taken die expliciet in het profiel staan\n2. Taken die standaard bij dit beroep horen (sectorkennis)\n3. Taken die bij de context van het bedrijf horen\n${bronTeksten ? '4. Taken die blijken uit de aanvullende bronnen hieronder' : ''}\n\nFUNCTIEPROFIEL: ${functieprofiel}\n${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}\n${eigenTaal ? `BEDRIJFSEIGEN TERMEN: ${eigenTaal}` : ''}\n${bronTeksten ? `\nAANVULLENDE BRONNEN:\n${bronTeksten}` : ''}\n\nJSON (direct, geen markdown):\n{"functietitel":"string","samenvatting":"max 2 zinnen","vergelijkbare_titels":["string"],"taken":[{"id":"T01","taak":"concrete taakomschrijving","bron":"profiel|beroep|bedrijf|bron","frequentie":"dagelijks|wekelijks|maandelijks","belang":"hoog|middel|laag","geselecteerd":true}]}\n\nGenereer 15-30 taken. Wees volledig en concreet.`,
+    `Analyseer dit functieprofiel grondig. Haal ALLE taken op:\n1. Taken die expliciet in het profiel staan\n2. Taken die standaard bij dit beroep horen (sectorkennis)\n3. Taken die bij de context van het bedrijf horen\n${bronTeksten ? '4. Taken die blijken uit de aanvullende bronnen hieronder' : ''}\n\nFUNCTIEPROFIEL: ${functieprofiel}\n${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}\n${eigenTaal ? `BEDRIJFSEIGEN TERMEN: ${eigenTaal}` : ''}\n${bronTeksten ? `\nAANVULLENDE BRONNEN:\n${bronTeksten}` : ''}\n\nJSON (direct, geen markdown):\n{"functietitel":"string","samenvatting":"max 2 zinnen","vergelijkbare_titels":["string"],"taken":[{"id":"T01","taak":"concrete taakomschrijving","bron":"profiel|beroep|bedrijf|bron","frequentie":"dagelijks|wekelijks|maandelijks","belang":"hoog|middel|laag","geselecteerd":true}]}\n\nGenereer 15-25 taken. Wees volledig en concreet.`,
     apiKey
   );
   return { ...taakResultaat, bronnenStatus };
@@ -144,19 +149,19 @@ async function koppelSkills(functietitel, taken, bedrijf, eigenTaal, apiKey) {
   );
   const escoLookup = {};
   [...hard, ...soft].forEach(r => {
-    escoLookup[r[1]] = { esco_label: r[0], esco_uri: r[3], esco_definitie: r[4] || null, esco_matched: true, esco_confidence: 100 };
+    escoLookup[r[1]] = { esco_label: r[0], esco_uri: r[3], esco_definitie: r[4] || null, esco_matched: true };
   });
   return {
     ...resultaat,
     taken: (resultaat.taken ?? []).map(taak => ({
       ...taak,
       hardskills: (taak.hardskills ?? []).map(s => {
-        const lookup = escoLookup[s.esco_code] ?? {};
-        return { ...s, esco_label: lookup.esco_label ?? s.skill, esco_uri: lookup.esco_uri ?? null, esco_definitie: lookup.esco_definitie ?? null, esco_matched: lookup.esco_matched ?? false, esco_confidence: lookup.esco_confidence ?? 0 };
+        const l = escoLookup[s.esco_code] ?? {};
+        return { ...s, esco_label: l.esco_label ?? s.skill, esco_uri: l.esco_uri ?? null, esco_definitie: l.esco_definitie ?? null, esco_matched: l.esco_matched ?? false };
       }),
       softskills: (taak.softskills ?? []).map(s => {
-        const lookup = escoLookup[s.esco_code] ?? {};
-        return { ...s, esco_label: lookup.esco_label ?? s.softskill, esco_uri: lookup.esco_uri ?? null, esco_definitie: lookup.esco_definitie ?? null, esco_matched: lookup.esco_matched ?? false, esco_confidence: lookup.esco_confidence ?? 0 };
+        const l = escoLookup[s.esco_code] ?? {};
+        return { ...s, esco_label: l.esco_label ?? s.softskill, esco_uri: l.esco_uri ?? null, esco_definitie: l.esco_definitie ?? null, esco_matched: l.esco_matched ?? false };
       }),
     })),
   };
@@ -184,12 +189,14 @@ export default async function handler(req, res) {
       const takenTekst = (taken||[]).slice(0,15).map(t => '- ' + t.taak).join('\n');
       const hardTekst = (skills?.hard||[]).map(s => s.skill).join(', ');
       const softTekst = (skills?.soft||[]).map(s => s.softskill).join(', ');
-      const systeemPrompt = 'Je bent een expert HR-adviseur. Schrijf een professionele functieomschrijving in alineas zonder kopjes. Derde persoon. Maximaal 4 alineas.';
-      const gebruikerPrompt = 'FUNCTIETITEL: ' + functietitel + '\nBEDRIJF: ' + (bedrijf||'onbekend') + '\nSAMENVATTING: ' + (samenvatting||'') + '\nTAKEN:\n' + takenTekst + '\nHARDSKILLS: ' + hardTekst + '\nSOFTSKILLS: ' + softTekst + (bronnenTekst ? '\nCONTEXT: ' + bronnenTekst : '') + '\n\nSchrijf 3-4 professionele alineas over deze functie, geschikt om te delen met klanten.';
       const res2 = await fetch(ANTHROPIC_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: systeemPrompt, messages: [{ role: 'user', content: gebruikerPrompt }] }),
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6', max_tokens: 4000, temperature: 0,
+          system: 'Je bent een expert HR-adviseur. Schrijf een professionele functieomschrijving in alineas zonder kopjes. Derde persoon. Maximaal 4 alineas.',
+          messages: [{ role: 'user', content: 'FUNCTIETITEL: ' + functietitel + '\nBEDRIJF: ' + (bedrijf||'onbekend') + '\nSAMENVATTING: ' + (samenvatting||'') + '\nTAKEN:\n' + takenTekst + '\nHARDSKILLS: ' + hardTekst + '\nSOFTSKILLS: ' + softTekst + (bronnenTekst ? '\nCONTEXT: ' + bronnenTekst : '') + '\n\nSchrijf 3-4 professionele alineas over deze functie, geschikt om te delen met klanten.' }]
+        }),
       });
       if (!res2.ok) throw new Error('Claude omschrijving fout: ' + res2.status);
       const data2 = await res2.json();
