@@ -265,14 +265,12 @@ function App() {
         const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
         const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
         hs.forEach(s => {
-          const key = 'h-'+s.skill;
-          if (!wordSkillMap.has(key)) wordSkillMap.set(key, { type:'Hard', naam:s.skill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,s.skill,s.niveau), taken:[] });
-          wordSkillMap.get(key).taken.push(taak.taak);
+          const key = taak.id+'-h-'+s.skill;
+          wordSkillMap.set(key, { type:'Hard', naam:s.skill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,s.skill,s.niveau), taak:taak.taak });
         });
         ss.forEach(s => {
-          const key = 's-'+s.softskill;
-          if (!wordSkillMap.has(key)) wordSkillMap.set(key, { type:'Soft', naam:s.softskill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis'), taken:[] });
-          wordSkillMap.get(key).taken.push(taak.taak);
+          const key = taak.id+'-s-'+s.softskill;
+          wordSkillMap.set(key, { type:'Soft', naam:s.softskill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis'), taak:taak.taak });
         });
       });
 
@@ -290,7 +288,7 @@ function App() {
         +'<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Skill</w:t></w:r></w:p></w:tc>'
         +'<w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>ESCO Code</w:t></w:r></w:p></w:tc>'
         +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Niveau</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Gekoppelde taken</w:t></w:r></w:p></w:tc>'
+        +'<w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Taak</w:t></w:r></w:p></w:tc>'
         +'<w:tc><w:tcPr><w:tcW w:w="1300" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>ESCO Definitie</w:t></w:r></w:p></w:tc>'
         +'</w:tr>';
 
@@ -302,9 +300,7 @@ function App() {
           +'<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t xml:space="preserve">'+esc(s.naam)+'</w:t></w:r></w:p></w:tc>'
           +'<w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:color w:val="1a56db"/></w:rPr><w:t>'+esc(s.code)+'</w:t></w:r></w:p></w:tc>'
           +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t>'+esc(s.niveau)+'</w:t></w:r></w:p></w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
-          +s.taken.map((t,i) => '<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="17"/></w:rPr><w:t xml:space="preserve">'+(i+1)+'. '+esc(t)+'</w:t></w:r></w:p>').join('')
-          +'</w:tc>'
+          +'<w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="17"/></w:rPr><w:t xml:space="preserve">'+esc(s.taak)+'</w:t></w:r></w:p></w:tc>'
           +'<w:tc><w:tcPr><w:tcW w:w="1300" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
           +(s.definitie?'<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:color w:val="444444"/></w:rPr><w:t xml:space="preserve">'+esc(s.definitie.slice(0,200))+'</w:t></w:r></w:p>':'<w:p><w:r><w:t></w:t></w:r></w:p>')
           +'</w:tc></w:tr>';
@@ -365,32 +361,25 @@ function App() {
     const geselecteerdeHardNames = new Set(selHard.map(s=>s.skill));
     const geselecteerdeSoftNames = new Set(selSoft.map(s=>s.softskill));
 
-    const skillTaakMap = new Map();
-    geselecteerdeTaken.forEach(taak => {
-      const st = skillsPerTaak.get(taak.id);
-      const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
-      const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
-      hs.forEach(s => {
-        const key = 'h-'+s.skill;
-        if (!skillTaakMap.has(key)) skillTaakMap.set(key, { type:'Hard', naam:s.skill, niveau:getNiveau(taak.id,s.skill,s.niveau), esco_definitie:s.esco_definitie||'', esco_uri:s.esco_uri||'', bron:taak.bron, frequentie:taak.frequentie, belang:taak.belang, taken:[] });
-        skillTaakMap.get(key).taken.push(taak.taak);
-      });
-      ss.forEach(s => {
-        const key = 's-'+s.softskill;
-        if (!skillTaakMap.has(key)) skillTaakMap.set(key, { type:'Soft', naam:s.softskill, niveau:getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis'), esco_definitie:s.esco_definitie||'', esco_uri:s.esco_uri||'', bron:taak.bron, frequentie:taak.frequentie, belang:taak.belang, taken:[] });
-        skillTaakMap.get(key).taken.push(taak.taak);
-      });
-    });
-
     const rows = [
       ['Bedrijf: '+(bedrijf||'-'),'','','','','','','',''],
       ['Functie: '+functietitel,'','','','','','','',''],
       ['Datum: '+datumLang,'','','','','','','',''],
       ['','','','','','','','',''],
-      ['Type','Skill','Niveau','Gekoppelde taken','ESCO Definitie','ESCO URI','Bron','Frequentie','Belang']
+      ['Type','Skill','Niveau','Taak','ESCO Definitie','ESCO URI','Bron','Frequentie','Belang']
     ];
-    skillTaakMap.forEach(s => {
-      rows.push([s.type, s.naam, s.niveau, s.taken.join(' | '), s.esco_definitie||'', s.esco_uri||'', s.bron||'', s.frequentie||'', s.belang||'']);
+
+    // Één rij per taak-skill combinatie — niveau is exact per taak
+    geselecteerdeTaken.forEach(taak => {
+      const st = skillsPerTaak.get(taak.id);
+      const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
+      const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
+      hs.forEach(s => {
+        rows.push(['Hard', s.skill, getNiveau(taak.id,s.skill,s.niveau), taak.taak, s.esco_definitie||'', s.esco_uri||'', taak.bron||'', taak.frequentie||'', taak.belang||'']);
+      });
+      ss.forEach(s => {
+        rows.push(['Soft', s.softskill, getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis'), taak.taak, s.esco_definitie||'', s.esco_uri||'', taak.bron||'', taak.frequentie||'', taak.belang||'']);
+      });
     });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
