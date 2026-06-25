@@ -265,12 +265,14 @@ function App() {
         const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
         const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
         hs.forEach(s => {
-          const key = taak.id+'-h-'+s.skill;
-          wordSkillMap.set(key, { type:'Hard', naam:s.skill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,s.skill,s.niveau), taak:taak.taak });
+          const key = 'h-'+s.skill;
+          if (!wordSkillMap.has(key)) wordSkillMap.set(key, {type:'Hard', naam:s.skill, code:s.esco_code||'', definitie:s.esco_definitie||'', taken:[]});
+          wordSkillMap.get(key).taken.push({taak:taak.taak, niveau:getNiveau(taak.id,s.skill,s.niveau)});
         });
         ss.forEach(s => {
-          const key = taak.id+'-s-'+s.softskill;
-          wordSkillMap.set(key, { type:'Soft', naam:s.softskill, code:s.esco_code||'', definitie:s.esco_definitie||'', niveau:getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis'), taak:taak.taak });
+          const key = 's-'+s.softskill;
+          if (!wordSkillMap.has(key)) wordSkillMap.set(key, {type:'Soft', naam:s.softskill, code:s.esco_code||'', definitie:s.esco_definitie||'', taken:[]});
+          wordSkillMap.get(key).taken.push({taak:taak.taak, niveau:getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis')});
         });
       });
 
@@ -283,28 +285,28 @@ function App() {
         ['Ook bekend als',vergelijkbareTitels.join(', ')||'—'],
       ].map((r,i) => '<w:tr><w:tc><w:tcPr><w:tcW w:w="2800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+(i%2===0?'E8EDF5':'F0F4FA')+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="20"/><w:color w:val="1F3864"/></w:rPr><w:t>'+esc(r[0])+'</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="6800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+(i%2===0?'E8EDF5':'F0F4FA')+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">'+esc(r[1])+'</w:t></w:r></w:p></w:tc></w:tr>').join('');
 
+      // Word: skill-centric tabel — Type | Skill + definitie | Taken per niveau
       let skillRijen = '<w:tr><w:trPr><w:trHeight w:val="400"/></w:trPr>'
         +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Type</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Skill</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>ESCO Code</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Niveau</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Taak</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="1300" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>ESCO Definitie</w:t></w:r></w:p></w:tc>'
+        +'<w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Skill</w:t></w:r></w:p></w:tc>'
+        +'<w:tc><w:tcPr><w:tcW w:w="5926" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Gekoppelde taken — niveau per taak</w:t></w:r></w:p></w:tc>'
         +'</w:tr>';
 
-      let ri = 0;
       wordSkillMap.forEach(s => {
-        const fill = ri%2===0 ? 'EEF2F7' : 'FFFFFF';
+        const headerFill = s.type==='Hard' ? 'EEF2F9' : 'FEFCE8';
+        const headerColor = s.type==='Hard' ? '1F3864' : 'C4860A';
         skillRijen += '<w:tr>'
-          +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:color w:val="'+(s.type==='Hard'?'1F3864':'C4860A')+'"/></w:rPr><w:t>'+esc(s.type)+'</w:t></w:r></w:p></w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t xml:space="preserve">'+esc(s.naam)+'</w:t></w:r></w:p></w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="1000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:color w:val="1a56db"/></w:rPr><w:t>'+esc(s.code)+'</w:t></w:r></w:p></w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t>'+esc(s.niveau)+'</w:t></w:r></w:p></w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="3500" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="17"/></w:rPr><w:t xml:space="preserve">'+esc(s.taak)+'</w:t></w:r></w:p></w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="1300" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
-          +(s.definitie?'<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:color w:val="444444"/></w:rPr><w:t xml:space="preserve">'+esc(s.definitie.slice(0,200))+'</w:t></w:r></w:p>':'<w:p><w:r><w:t></w:t></w:r></w:p>')
+          +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+headerFill+'"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
+          +'<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="17"/><w:b/><w:color w:val="'+headerColor+'"/></w:rPr><w:t>'+esc(s.type)+'</w:t></w:r></w:p></w:tc>'
+          +'<w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+headerFill+'"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
+          +'<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t xml:space="preserve">'+esc(s.naam)+'</w:t></w:r></w:p>'
+          +(s.definitie?'<w:p><w:pPr><w:spacing w:before="40" w:after="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="14"/><w:color w:val="888888"/><w:i/></w:rPr><w:t xml:space="preserve">'+esc(s.definitie.slice(0,120))+'</w:t></w:r></w:p>':'')
+          +'</w:tc>'
+          +'<w:tc><w:tcPr><w:tcW w:w="5926" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="FFFFFF"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
+          +s.taken.map((t,i) => '<w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr>'
+            +'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:b/><w:color w:val="444444"/></w:rPr><w:t xml:space="preserve">'+esc(t.niveau)+' — </w:t></w:r>'
+            +'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">'+esc(t.taak)+'</w:t></w:r></w:p>').join('')
           +'</w:tc></w:tr>';
-        ri++;
       });
 
       const omschrijvingBlok = uitgebreideOmschrijving ? '<w:p><w:pPr><w:spacing w:before="320" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr><w:t>1. Functieoverzicht</w:t></w:r></w:p>'
@@ -322,7 +324,7 @@ function App() {
         +infoRijen+'</w:tbl>'
         +omschrijvingBlok
         +'<w:p><w:pPr><w:spacing w:before="320" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr><w:t>'+secNr+'. Skillset per taak</w:t></w:r></w:p>'
-        +'<w:tbl><w:tblPr><w:tblW w:w="9200" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:left w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:right w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="700"/><w:gridCol w:w="2000"/><w:gridCol w:w="1000"/><w:gridCol w:w="700"/><w:gridCol w:w="3500"/><w:gridCol w:w="1300"/></w:tblGrid>'
+        +'<w:tbl><w:tblPr><w:tblW w:w="9226" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:left w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:right w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="700"/><w:gridCol w:w="2600"/><w:gridCol w:w="5926"/></w:tblGrid>'
         +skillRijen+'</w:tbl>'
         +'<w:p><w:pPr><w:spacing w:before="320" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr><w:t>'+(parseInt(secNr)+1)+'. Geraadpleegde bronnen</w:t></w:r></w:p>'
         +'<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t>ESCO database. ('+jaar+'). European Skills, Competences, Qualifications and Occupations. Geraadpleegd op '+esc(datum)+', van https://esco.ec.europa.eu</w:t></w:r></w:p>'
@@ -384,7 +386,43 @@ function App() {
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!cols'] = [{wch:8},{wch:35},{wch:12},{wch:80},{wch:55},{wch:60},{wch:10},{wch:12},{wch:8}];
-    XLSX.utils.book_append_sheet(wb, ws, 'Functieprofiel Skillset');
+    XLSX.utils.book_append_sheet(wb, ws, 'Per taak-skill combinatie');
+
+    // Tabblad 2: gegroepeerd per skill
+    const rowsPerSkill = [
+      ['Bedrijf: '+(bedrijf||'-'),'','',''],
+      ['Functie: '+functietitel,'','',''],
+      ['Datum: '+datumLang,'','',''],
+      ['','','',''],
+      ['Type','Skill','Niveaus per taak','ESCO Definitie']
+    ];
+    const skillGroepMap = new Map();
+    geselecteerdeTaken.forEach(taak => {
+      const st = skillsPerTaak.get(taak.id);
+      const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
+      const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
+      hs.forEach(s => {
+        const key = 'h-'+s.skill;
+        if (!skillGroepMap.has(key)) skillGroepMap.set(key, {type:'Hard', naam:s.skill, definitie:s.esco_definitie||'', taken:[]});
+        skillGroepMap.get(key).taken.push(getNiveau(taak.id,s.skill,s.niveau)+': '+taak.taak);
+      });
+      ss.forEach(s => {
+        const key = 's-'+s.softskill;
+        if (!skillGroepMap.has(key)) skillGroepMap.set(key, {type:'Soft', naam:s.softskill, definitie:s.esco_definitie||'', taken:[]});
+        skillGroepMap.get(key).taken.push(getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis')+': '+taak.taak);
+      });
+    });
+    skillGroepMap.forEach(s => {
+      rowsPerSkill.push([s.type, s.naam, s.taken.join('\n'), s.definitie||'']);
+    });
+    const wsSkill = XLSX.utils.aoa_to_sheet(rowsPerSkill);
+    wsSkill['!cols'] = [{wch:8},{wch:35},{wch:80},{wch:55}];
+    // Wrap text in niveaus kolom
+    skillGroepMap.forEach((s,i) => {
+      const cellRef = XLSX.utils.encode_cell({r:i+5, c:2});
+      if (wsSkill[cellRef]) wsSkill[cellRef].s = {alignment:{wrapText:true}};
+    });
+    XLSX.utils.book_append_sheet(wb, wsSkill, 'Per skill gegroepeerd');
 
     // Methodiek tabblad met bekwaamheidsschaal
     const meta = [
