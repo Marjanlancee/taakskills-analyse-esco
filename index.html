@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Taakanalyse Skills ESCO</title>
+<title>Taakskills Analyse ESCO</title>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -112,9 +112,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState } = React;
-
-// 5 niveaus: 1=Beginner, 2=Basis, 3=Gemiddeld, 4=Gevorderd, 5=Expert
+const { useState, useEffect } = React;
 const NIVEAUS = ["Beginner","Basis","Gemiddeld","Gevorderd","Expert"];
 const NIVEAU = {
   Beginner: {k:"#f0f0f0",t:"#444444",b:"#bbbbbb",d:"#888888",desc:"Nog geen kennis/vaardigheid, in ontwikkeling"},
@@ -147,11 +145,18 @@ function App() {
   const [pdfTekst, setPdfTekst] = useState("");
   const [pdfNaam, setPdfNaam] = useState("");
   const [uitgebreid, setUitgebreid] = useState(false);
+  const [eigenTaken, setEigenTaken] = useState({});
+  const setEigenTaak = (skill, idx, val) => setEigenTaken(p => ({...p, [skill]: Object.assign([...Array(5).fill('')], p[skill]||[], {[idx]: val})}));
+  const getEigenTaken = (skill) => (eigenTaken[skill]||[]).filter(t=>t&&t.trim());
+  const [eigenSkillNaam, setEigenSkillNaam] = useState({});
+  const [eigenSkillNiveau, setEigenSkillNiveau] = useState({});
+  const getEigenSkillNaam = (term) => eigenSkillNaam[term]||'';
+  const getEigenSkillNiveau = (term) => eigenSkillNiveau[term]||'Gevorderd';
 
   const heeftEigen = eigenTaal.trim().length > 0;
   const geselecteerdeTaken = taken.filter(t => t.geselecteerd);
-  const getNiveau = (tid, skill, orig) => overrides[tid+'-'+skill] || orig || "Basis";
-  const setNiveau = (tid, skill, n) => setOverrides(p => ({...p,[tid+'-'+skill]:n}));
+  const getNiveau = (tid, skill, orig) => overrides[`${tid}-${skill}`] || orig || 'Basis';
+  const setNiveau = (tid, skill, n) => setOverrides(p => ({...p,[`${tid}-${skill}`]:n}));
 
   const leesUitPdf = (file) => {
     if (!file || !file.type.includes('pdf')) return;
@@ -161,7 +166,7 @@ function App() {
       const arr = new Uint8Array(e.target.result);
       let raw = '';
       for (let i = 0; i < arr.length; i++) raw += String.fromCharCode(arr[i]);
-      const matches = raw.match(/[A-Za-z\xC0-\xFF\s\d.,;:!?()%-]{30,}/g) || [];
+      const matches = raw.match(/[A-Za-zÀ-ɏ\s\d.,;:!?()%-]{30,}/g) || [];
       const tekst = matches.join(' ').replace(/\s+/g, ' ').trim().slice(0, 8000);
       setPdfTekst(tekst);
     };
@@ -207,6 +212,7 @@ function App() {
   };
 
   const toggleTaak = (id) => setTaken(prev => prev.map(t => t.id===id ? {...t,geselecteerd:!t.geselecteerd} : t));
+
   const eigenTermenLijst = eigenTaal.trim() ? eigenTaal.split(/[,\n]/).map(t=>t.trim()).filter(Boolean) : [];
 
   const alleHardskills = skillsData ? (() => {
@@ -215,568 +221,511 @@ function App() {
       if (!map.has(s.skill)||(!map.get(s.skill).esco_code&&s.esco_code)) map.set(s.skill,s);
     });
     eigenTermenLijst.forEach(term => {
-      if (!map.has(term)) map.set(term,{skill:term,niveau:"Basis",bron:"bedrijf",eigen:true,esco_code:null,esco_label:null,esco_matched:false});
+      if (!map.has(term)) map.set(term,{skill:term,niveau:"Gevorderd",bron:"bedrijf",eigen:true,esco_code:null,esco_label:null,esco_matched:false});
     });
     return [...map.values()];
   })() : [];
 
   const alleSoftskills = skillsData ? (() => {
     const map = new Map();
-    (skillsData.taken||[]).flatMap(t=>(t.softskills||[]).map(s=>({...s,niveau:getNiveau(t.id,'soft-'+s.softskill,s.niveau||"Basis")}))).forEach(s=>{
-      if (!map.has(s.softskill)||(!map.get(s.softskill).esco_code&&s.esco_code)) map.set(s.softskill,s);
+    (skillsData.taken||[]).flatMap(t=>(t.softskills||[]).map(s=>({...s,niveau:getNiveau(t.id,`soft-${s.softskill}`,s.niveau||"Basis")}))).forEach(s=>{
+      const cur = map.get(s.softskill);
+      if (!cur || (!cur.esco_code&&s.esco_code) || NIVEAUS.indexOf(s.niveau)>NIVEAUS.indexOf(cur.niveau)) {
+        map.set(s.softskill, s);
+      }
     });
     return [...map.values()];
   })() : [];
 
-  const selHard = alleHardskills.filter(s=>selectedDef['h-'+s.skill]);
-  const selSoft = alleSoftskills.filter(s=>selectedDef['s-'+s.softskill]);
+  const selHard = alleHardskills.filter(s=>selectedDef[`h-${s.skill}`]);
+  const selSoft = alleSoftskills.filter(s=>selectedDef[`s-${s.softskill}`]);
 
   const exportWord = async () => {
     try {
       let tries = 0;
-      while (typeof JSZip === 'undefined' && tries < 30) {
-        await new Promise(r => setTimeout(r, 100));
-        tries++;
-      }
-      if (typeof JSZip === 'undefined') { alert('Word export library niet geladen.'); return; }
-
+      while (typeof JSZip === 'undefined' && tries < 30) { await new Promise(r => setTimeout(r, 100)); tries++; }
+      if (typeof JSZip === 'undefined') { alert('Word export library niet geladen. Herlaad de pagina.'); return; }
       const datum = new Date().toLocaleDateString('nl-NL');
+      const datumLang = new Date().toLocaleDateString('nl-NL',{day:'numeric',month:'long',year:'numeric'});
       const jaar = new Date().getFullYear();
-
+      const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const KLEUR = '1F3864'; const ACCENT = '2E75B6'; const LIGHT = 'D6E4F0';
       let uitgebreideOmschrijving = '';
       if (uitgebreid) {
         try {
           const bronLijst = bronnen.trim() ? bronnen.split('\n').filter(b=>b.trim()).join(', ') : '';
-          const res = await fetch('/api/analyse', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ stap:3, functietitel, samenvatting, taken:geselecteerdeTaken, skills:{hard:selHard,soft:selSoft}, bedrijf, bronnenTekst:bronLijst }) });
-          const data = await res.json();
-          if (data.omschrijving) uitgebreideOmschrijving = data.omschrijving;
+          const res = await fetch('/api/analyse', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ stap:3, functietitel, functieprofiel:input, samenvatting, taken:geselecteerdeTaken, skills:{hard:selHard,soft:selSoft}, bedrijf, bronnen:bronLijst }) });
+          const data = await res.json(); if (data.omschrijving) uitgebreideOmschrijving = data.omschrijving;
         } catch(e) { console.error('Omschrijving fout:', e); }
       }
-
       const skillsPerTaak = new Map();
       if (skillsData) (skillsData.taken||[]).forEach(t => skillsPerTaak.set(t.id, t));
-      const geselecteerdeHardNames = new Set(selHard.map(s=>s.skill));
-      const geselecteerdeSoftNames = new Set(selSoft.map(s=>s.softskill));
-      const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-      const wordSkillMap = new Map();
-      geselecteerdeTaken.forEach(taak => {
-        const st = skillsPerTaak.get(taak.id);
-        const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
-        const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
-        hs.forEach(s => {
-          const key = 'h-'+s.skill;
-          if (!wordSkillMap.has(key)) wordSkillMap.set(key, {type:'Hard', naam:s.skill, code:s.esco_code||'', definitie:s.esco_definitie||'', taken:[]});
-          wordSkillMap.get(key).taken.push({taak:taak.taak, niveau:getNiveau(taak.id,s.skill,s.niveau)});
-        });
-        ss.forEach(s => {
-          const key = 's-'+s.softskill;
-          if (!wordSkillMap.has(key)) wordSkillMap.set(key, {type:'Soft', naam:s.softskill, code:s.esco_code||'', definitie:s.esco_definitie||'', taken:[]});
-          wordSkillMap.get(key).taken.push({taak:taak.taak, niveau:getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis')});
-        });
+      const selHardNames = new Set(selHard.map(s=>s.skill));
+      const selSoftNames = new Set(selSoft.map(s=>s.softskill));
+      const props = [['Bedrijf',bedrijf||'\u2014'],['Functietitel',functietitel],['Datum',datumLang],['Skills-taxonomie','ESCO versie 1.2 \u2014 Europese Commissie (NL)'],['Aantal taken',String(geselecteerdeTaken.length)],['Hardskills',String(alleHardskills.length)],['Softskills',String(alleSoftskills.length)],['Geselecteerde skills',String(selHard.length+selSoft.length)+' ('+String(selHard.length)+' hard, '+String(selSoft.length)+' soft)'],...(vergelijkbareTitels.length?[['Ook bekend als',vergelijkbareTitels.join(', ')]]:[] )];
+      const eigRijen = props.map(([k,v])=>`<w:tr><w:tc><w:tcPr><w:tcW w:w="2400" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${LIGHT}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="140" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="${KLEUR}"/></w:rPr><w:t>${esc(k)}</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="6626" w:type="dxa"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="140" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${esc(v)}</w:t></w:r></w:p></w:tc></w:tr>`).join('');
+      const titelBlok=`<w:p><w:pPr><w:spacing w:before="480" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="52"/><w:color w:val="${KLEUR}"/></w:rPr><w:t>Taakanalyse</w:t></w:r></w:p><w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="40"/><w:color w:val="${ACCENT}"/></w:rPr><w:t>${esc(functietitel)}</w:t></w:r></w:p><w:p><w:pPr><w:spacing w:before="0" w:after="40"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="24"/><w:color w:val="555555"/></w:rPr><w:t>${esc(bedrijf||'')}</w:t></w:r></w:p><w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="12" w:space="8" w:color="${ACCENT}"/></w:pBdr><w:spacing w:before="80" w:after="280"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:i/><w:color w:val="888888"/></w:rPr><w:t>Skills-based taakanalyse op basis van ESCO-taxonomie versie 1.2 (Nederlands)</w:t></w:r></w:p><w:tbl><w:tblPr><w:tblW w:w="9026" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="CCCCCC"/><w:left w:val="single" w:sz="4" w:color="CCCCCC"/><w:bottom w:val="single" w:sz="4" w:color="CCCCCC"/><w:right w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideH w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideV w:val="single" w:sz="4" w:color="CCCCCC"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="2400"/><w:gridCol w:w="6626"/></w:tblGrid>${eigRijen}</w:tbl>`;
+      const omschrijvingBlok=uitgebreideOmschrijving?uitgebreideOmschrijving.split('\n\n').map(a=>`<w:p><w:pPr><w:spacing w:before="0" w:after="120"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">${a.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</w:t></w:r></w:p>`).join(''):'';
+      const wordSkillMap=new Map();
+      geselecteerdeTaken.forEach(taak=>{
+        const st=skillsPerTaak.get(taak.id);
+        const hs=st?(st.hardskills||[]).filter(s=>selHardNames.has(s.skill)):[];
+        const ss=st?(st.softskills||[]).filter(s=>selSoftNames.has(s.softskill)):[];
+        hs.forEach(s=>{const key='h-'+s.skill;if(!wordSkillMap.has(key))wordSkillMap.set(key,{type:'Hard',naam:s.skill,code:s.esco_code||'',definitie:s.esco_definitie||'',niveau:getNiveau(taak.id,s.skill,s.niveau),taken:[]});wordSkillMap.get(key).taken.push(taak.taak);});
+        ss.forEach(s=>{const key='s-'+s.softskill;if(!wordSkillMap.has(key))wordSkillMap.set(key,{type:'Soft',naam:s.softskill,code:s.esco_code||'',definitie:s.esco_definitie||'',niveau:getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd'),taken:[]});wordSkillMap.get(key).taken.push(taak.taak);});
       });
-
-      const infoRijen = [
-        ['Bedrijf', bedrijf||'—'],['Functietitel', functietitel],['Datum', datum],
-        ['Skills-taxonomie','ESCO — European Skills, Competences, Qualifications and Occupations'],
-        ['Aantal taken',String(geselecteerdeTaken.length)],['Hardskills',String(alleHardskills.length)],
-        ['Softskills',String(alleSoftskills.length)],
-        ['Geselecteerde skills',String(selHard.length+selSoft.length)+' ('+selHard.length+' hard, '+selSoft.length+' soft)'],
-        ['Ook bekend als',vergelijkbareTitels.join(', ')||'—'],
-      ].map((r,i) => '<w:tr><w:tc><w:tcPr><w:tcW w:w="2800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+(i%2===0?'E8EDF5':'F0F4FA')+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="20"/><w:color w:val="1F3864"/></w:rPr><w:t>'+esc(r[0])+'</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="6800" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+(i%2===0?'E8EDF5':'F0F4FA')+'"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">'+esc(r[1])+'</w:t></w:r></w:p></w:tc></w:tr>').join('');
-
-      // Word: skill-centric tabel — Type | Skill + definitie | Taken per niveau
-      let skillRijen = '<w:tr><w:trPr><w:trHeight w:val="400"/></w:trPr>'
-        +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Type</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Skill</w:t></w:r></w:p></w:tc>'
-        +'<w:tc><w:tcPr><w:tcW w:w="5926" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="1F3864"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="18"/><w:color w:val="FFFFFF"/></w:rPr><w:t>Gekoppelde taken — niveau per taak</w:t></w:r></w:p></w:tc>'
-        +'</w:tr>';
-
-      wordSkillMap.forEach(s => {
-        const headerFill = s.type==='Hard' ? 'EEF2F9' : 'FEFCE8';
-        const headerColor = s.type==='Hard' ? '1F3864' : 'C4860A';
-        skillRijen += '<w:tr>'
-          +'<w:tc><w:tcPr><w:tcW w:w="700" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+headerFill+'"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
-          +'<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="17"/><w:b/><w:color w:val="'+headerColor+'"/></w:rPr><w:t>'+esc(s.type)+'</w:t></w:r></w:p></w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="2600" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="'+headerFill+'"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
-          +'<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:b/></w:rPr><w:t xml:space="preserve">'+esc(s.naam)+'</w:t></w:r></w:p>'
-          +(s.definitie?'<w:p><w:pPr><w:spacing w:before="40" w:after="0"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="14"/><w:color w:val="888888"/><w:i/></w:rPr><w:t xml:space="preserve">'+esc(s.definitie.slice(0,120))+'</w:t></w:r></w:p>':'')
-          +'</w:tc>'
-          +'<w:tc><w:tcPr><w:tcW w:w="5926" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="FFFFFF"/><w:vAlign w:val="top"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar></w:tcPr>'
-          +s.taken.map((t,i) => '<w:p><w:pPr><w:spacing w:before="40" w:after="40"/></w:pPr>'
-            +'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/><w:b/><w:color w:val="444444"/></w:rPr><w:t xml:space="preserve">'+esc(t.niveau)+' — </w:t></w:r>'
-            +'<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">'+esc(t.taak)+'</w:t></w:r></w:p>').join('')
-          +'</w:tc></w:tr>';
+      // Bedrijfseigen skills toevoegen met ESCO naam + taken
+      selHard.filter(s=>s.eigen&&selHardNames.has(s.skill)).forEach(s=>{
+        const key='h-'+s.skill;
+        const escNaam = getEigenSkillNaam(s.skill)||s.skill;
+        const niv = getEigenSkillNiveau(s.skill);
+        if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Hard',naam:escNaam,code:'',definitie:`Bedrijfsterm: ${s.skill}`,niveau:niv,taken:getEigenTaken(s.skill)});
       });
-
-      const omschrijvingBlok = uitgebreideOmschrijving ? '<w:p><w:pPr><w:spacing w:before="320" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr><w:t>1. Functieoverzicht</w:t></w:r></w:p>'
-        + uitgebreideOmschrijving.split('\n\n').map(p => '<w:p><w:pPr><w:spacing w:before="0" w:after="120"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr><w:t xml:space="preserve">'+p.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</w:t></w:r></w:p>').join('') : '';
-
-      const secNr = uitgebreideOmschrijving ? '2' : '1';
-
-      const docXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        +'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>'
-        +'<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="52"/><w:color w:val="1F3864"/></w:rPr><w:t>Taakanalyse ESCO Skills</w:t></w:r></w:p>'
-        +'<w:p><w:pPr><w:spacing w:before="0" w:after="200"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="36"/><w:color w:val="2d6a4f"/></w:rPr><w:t>'+esc(functietitel)+'</w:t></w:r></w:p>'
-        +'<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:i/><w:color w:val="666666"/></w:rPr><w:t>Skills-based taakanalyse op basis van ESCO Skills Library</w:t></w:r></w:p>'
-        +'<w:p><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr></w:p>'
-        +'<w:tbl><w:tblPr><w:tblW w:w="9600" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:left w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:right w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="2800"/><w:gridCol w:w="6800"/></w:tblGrid>'
-        +infoRijen+'</w:tbl>'
-        +omschrijvingBlok
-        +'<w:p><w:pPr><w:spacing w:before="320" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr><w:t>'+secNr+'. Skillset per taak</w:t></w:r></w:p>'
-        +'<w:tbl><w:tblPr><w:tblW w:w="9226" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:left w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:right w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="C8D4E8"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="700"/><w:gridCol w:w="2600"/><w:gridCol w:w="5926"/></w:tblGrid>'
-        +skillRijen+'</w:tbl>'
-        +'<w:p><w:pPr><w:spacing w:before="320" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr><w:t>'+(parseInt(secNr)+1)+'. Geraadpleegde bronnen</w:t></w:r></w:p>'
-        +'<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t>ESCO database. ('+jaar+'). European Skills, Competences, Qualifications and Occupations. Geraadpleegd op '+esc(datum)+', van https://esco.ec.europa.eu</w:t></w:r></w:p>'
-        +'<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t>Anthropic. ('+jaar+'). Claude AI (claude-sonnet-4-6). Geraadpleegd op '+esc(datum)+', van https://www.anthropic.com</w:t></w:r></w:p>'
-        +(bronnen.trim() ? bronnen.split('\n').filter(b=>b.trim()).map(b=>'<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">'+esc(b.trim())+'. Geraadpleegd op '+esc(datum)+'.</w:t></w:r></w:p>').join('') : '')
-        +(pdfNaam ? '<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">'+esc(pdfNaam)+' [PDF upload]. Geraadpleegd op '+esc(datum)+'.</w:t></w:r></w:p>' : '')
-        +'<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>'
-        +'</w:body></w:document>';
-
-      const stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="22"/><w:szCs w:val="22"/><w:lang w:val="nl-NL" w:eastAsia="nl-NL" w:bidi="ar-SA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr></w:style></w:styles>';
-
-      const zip = new JSZip();
+      selSoft.filter(s=>s.eigen&&selSoftNames.has(s.softskill)).forEach(s=>{
+        const term=s.softskill||s.skill;
+        const key='s-'+term;
+        const escNaam = getEigenSkillNaam(term)||term;
+        const niv = getEigenSkillNiveau(term);
+        if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Soft',naam:escNaam,code:'',definitie:`Bedrijfsterm: ${term}`,niveau:niv,taken:getEigenTaken(term)});
+      });
+      const CW=[600,2800,700,3126,1800];const CH=['Type','Skill','Niveau','Gekoppelde taken','ESCO Definitie'];
+      let taakRijen=`<w:tr><w:trPr><w:trHeight w:val="360"/></w:trPr>${CH.map((h,i)=>`<w:tc><w:tcPr><w:tcW w:w="${CW[i]}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${KLEUR}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="17"/><w:color w:val="FFFFFF"/></w:rPr><w:t>${h}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`;
+      let ri=0;wordSkillMap.forEach(s=>{const fill=ri%2===0?'EEF2F7':'FFFFFF';const hc=s.type==='Hard'?KLEUR:'C4860A';taakRijen+=`<w:tr>${[[s.type,hc,false,false],[s.naam,'',true,false],[s.niveau,'',false,false],null,[s.definitie?s.definitie.slice(0,250):'','444444',false,true]].map((cel,i)=>`<w:tc><w:tcPr><w:tcW w:w="${CW[i]}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr>${i===4?s.taken.map((t,j)=>`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">${j+1}. ${esc(t)}</w:t></w:r></w:p>`).join(''):`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>${cel[2]?'<w:b/>':''}${cel[1]?`<w:color w:val="${cel[1]}"/>`:''}${cel[3]?'<w:sz w:val="15"/>':'<w:sz w:val="17"/>'}</w:rPr><w:t xml:space="preserve">${esc(cel[0]||'')}</w:t></w:r></w:p>`}</w:tc>`).join('')}</w:tr>`;ri++;});
+      const h2=t=>`<w:p><w:pPr><w:spacing w:before="320" w:after="80"/><w:pBdr><w:bottom w:val="single" w:sz="8" w:space="4" w:color="${ACCENT}"/></w:pBdr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="${KLEUR}"/></w:rPr><w:t>${t}</w:t></w:r></w:p>`;
+      const bronP=t=>`<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`;
+      const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${titelBlok}${h2('1. Functieoverzicht')}<w:p><w:pPr><w:spacing w:before="60" w:after="100"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${esc(samenvatting||'')}</w:t></w:r></w:p>${vergelijkbareTitels.length?`<w:p><w:pPr><w:spacing w:before="60" w:after="100"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:i/><w:color w:val="666666"/></w:rPr><w:t xml:space="preserve">Ook bekend als: ${esc(vergelijkbareTitels.join(' \u00b7 '))}</w:t></w:r></w:p>`:''}${omschrijvingBlok}${h2('2. Skillset per taak')}<w:tbl><w:tblPr><w:tblW w:w="9026" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="CCCCCC"/><w:left w:val="single" w:sz="4" w:color="CCCCCC"/><w:bottom w:val="single" w:sz="4" w:color="CCCCCC"/><w:right w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideH w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideV w:val="single" w:sz="4" w:color="CCCCCC"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="600"/><w:gridCol w:w="2800"/><w:gridCol w:w="700"/><w:gridCol w:w="3126"/><w:gridCol w:w="1800"/></w:tblGrid>${taakRijen}</w:tbl>${h2('3. Bronnen')}${bronP('ESCO database. ('+jaar+'). European Skills, Competences, Qualifications and Occupations. Geraadpleegd op '+datum+', van https://esco.ec.europa.eu')}${bronP('Anthropic. ('+jaar+'). Claude AI (claude-sonnet-4-6). Geraadpleegd op '+datum+', van https://www.anthropic.com')}${bronnen.trim()?bronnen.split('\n').filter(b=>b.trim()).map(b=>bronP(b.trim()+'. Geraadpleegd op '+datum+'.')).join(''):''}${pdfNaam?bronP(pdfNaam+' [PDF upload]. Geraadpleegd op '+datum+'.'):''}<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+      const stylesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="22"/><w:lang w:val="nl-NL"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr></w:style></w:styles>`;
+      const zip=new JSZip();
       zip.file('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>');
       zip.file('_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
-      zip.file('word/document.xml', docXml);
-      zip.file('word/styles.xml', stylesXml);
+      zip.file('word/document.xml',docXml);zip.file('word/styles.xml',stylesXml);
       zip.file('word/_rels/document.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>');
-
-      const blob = await zip.generateAsync({ type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Taakanalyse_ESCO_'+(bedrijf||'').replace(/\s/g,'_')+'_'+functietitel.replace(/\s/g,'_')+'_'+datum.replace(/\//g,'-')+'.docx';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch(e) { console.error('Word export fout:', e); alert('Word export mislukt: '+e.message); }
+      const blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      const url=URL.createObjectURL(blob);const a=document.createElement('a');
+      a.href=url;a.download=`Taakskills_Analyse_ESCO_${(bedrijf||'').replace(/\s/g,'_')}_${functietitel.replace(/\s/g,'_')}_${datum.replace(/\//g,'-')}.docx`;a.click();URL.revokeObjectURL(url);
+    } catch(e) { console.error('Word fout:', e); alert('Word export mislukt: ' + e.message); }
   };
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
     const datum = new Date().toLocaleDateString('nl-NL');
     const datumLang = new Date().toLocaleDateString('nl-NL',{day:'numeric',month:'long',year:'numeric'});
-
+    const rows = [
+      [`Bedrijf: ${bedrijf||'-'}`,'','','','','','','',''],
+      [`Functie: ${functietitel}`,'','','','','','','',''],
+      [`Datum: ${datumLang}`,'','','','','','','',''],
+      ['','','','','','','','',''],
+      ['Type','Skill','Niveau','Taak / Gekoppelde taken','ESCO Definitie','ESCO URI','Bron','Frequentie','Belang']
+    ];
     const skillsPerTaak = new Map();
-    if (skillsData) (skillsData.taken||[]).forEach(t => skillsPerTaak.set(t.id, t));
+    if (skillsData) (skillsData.taken||[]).forEach(t => skillsPerTaak.set(t.id,t));
     const geselecteerdeHardNames = new Set(selHard.map(s=>s.skill));
     const geselecteerdeSoftNames = new Set(selSoft.map(s=>s.softskill));
-
-    const rows = [
-      ['Bedrijf: '+(bedrijf||'-'),'','','','','','','',''],
-      ['Functie: '+functietitel,'','','','','','','',''],
-      ['Datum: '+datumLang,'','','','','','','',''],
-      ['','','','','','','','',''],
-      ['Type','Skill','Niveau','Taak','ESCO Definitie','ESCO URI','Bron','Frequentie','Belang']
-    ];
-
-    // Één rij per taak-skill combinatie — niveau is exact per taak
+    // Hardskills: één rij per taak-skill combinatie (niveau per taak kan verschillen)
     geselecteerdeTaken.forEach(taak => {
       const st = skillsPerTaak.get(taak.id);
       const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
-      const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
       hs.forEach(s => {
         rows.push(['Hard', s.skill, getNiveau(taak.id,s.skill,s.niveau), taak.taak, s.esco_definitie||'', s.esco_uri||'', taak.bron||'', taak.frequentie||'', taak.belang||'']);
       });
-      ss.forEach(s => {
-        rows.push(['Soft', s.softskill, getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis'), taak.taak, s.esco_definitie||'', s.esco_uri||'', taak.bron||'', taak.frequentie||'', taak.belang||'']);
-      });
     });
-
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:8},{wch:35},{wch:12},{wch:80},{wch:55},{wch:60},{wch:10},{wch:12},{wch:8}];
-    XLSX.utils.book_append_sheet(wb, ws, 'Per taak-skill combinatie');
-
-    // Tabblad 2: gegroepeerd per skill
-    const rowsPerSkill = [
-      ['Bedrijf: '+(bedrijf||'-'),'','',''],
-      ['Functie: '+functietitel,'','',''],
-      ['Datum: '+datumLang,'','',''],
-      ['','','',''],
-      ['Type','Skill','Niveaus per taak','ESCO Definitie']
-    ];
-    const skillGroepMap = new Map();
+    // Softskills: één rij per skill, hoogste niveau, taken samengevoegd
+    const softTaakMap = new Map();
     geselecteerdeTaken.forEach(taak => {
       const st = skillsPerTaak.get(taak.id);
-      const hs = st ? (st.hardskills||[]).filter(s=>geselecteerdeHardNames.has(s.skill)) : [];
       const ss = st ? (st.softskills||[]).filter(s=>geselecteerdeSoftNames.has(s.softskill)) : [];
-      hs.forEach(s => {
-        const key = 'h-'+s.skill;
-        if (!skillGroepMap.has(key)) skillGroepMap.set(key, {type:'Hard', naam:s.skill, definitie:s.esco_definitie||'', taken:[]});
-        skillGroepMap.get(key).taken.push(getNiveau(taak.id,s.skill,s.niveau)+': '+taak.taak);
-      });
       ss.forEach(s => {
-        const key = 's-'+s.softskill;
-        if (!skillGroepMap.has(key)) skillGroepMap.set(key, {type:'Soft', naam:s.softskill, definitie:s.esco_definitie||'', taken:[]});
-        skillGroepMap.get(key).taken.push(getNiveau(taak.id,'soft-'+s.softskill,s.niveau||'Basis')+': '+taak.taak);
+        const niv = getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Basis');
+        if (!softTaakMap.has(s.softskill)) softTaakMap.set(s.softskill, {...s, niveauMax:niv, taken:[taak.taak], bron:taak.bron||'', freq:taak.frequentie||'', belang:taak.belang||''});
+        else {
+          const cur = softTaakMap.get(s.softskill);
+          if (NIVEAUS.indexOf(niv) > NIVEAUS.indexOf(cur.niveauMax)) cur.niveauMax = niv;
+          cur.taken.push(taak.taak);
+        }
       });
     });
-    skillGroepMap.forEach(s => {
-      rowsPerSkill.push([s.type, s.naam, s.taken.join('\n'), s.definitie||'']);
+    softTaakMap.forEach(s => {
+      rows.push(['Soft', s.softskill, s.niveauMax, s.taken.join(' | '), s.esco_definitie||'', s.esco_uri||'', s.bron||'', s.freq||'', s.belang||'']);
     });
-    const wsSkill = XLSX.utils.aoa_to_sheet(rowsPerSkill);
-    wsSkill['!cols'] = [{wch:8},{wch:35},{wch:80},{wch:55}];
-    // Wrap text in niveaus kolom
-    skillGroepMap.forEach((s,i) => {
-      const cellRef = XLSX.utils.encode_cell({r:i+5, c:2});
-      if (wsSkill[cellRef]) wsSkill[cellRef].s = {alignment:{wrapText:true}};
+    // Bedrijfseigen skills
+    selHard.filter(s=>s.eigen).forEach(s => {
+      const escNaam = getEigenSkillNaam(s.skill)||s.skill;
+      const niv = getEigenSkillNiveau(s.skill);
+      rows.push(['Hard', escNaam, niv, getEigenTaken(s.skill).join(' | '), '', '', 'bedrijf', '', '']);
     });
-    XLSX.utils.book_append_sheet(wb, wsSkill, 'Per skill gegroepeerd');
-
-    // Methodiek tabblad met bekwaamheidsschaal
+    selSoft.filter(s=>s.eigen).forEach(s => {
+      const term = s.softskill||s.skill;
+      const escNaam = getEigenSkillNaam(term)||term;
+      const niv = getEigenSkillNiveau(term);
+      rows.push(['Soft', escNaam, niv, getEigenTaken(term).join(' | '), '', '', 'bedrijf', '', '']);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:8},{wch:35},{wch:12},{wch:80},{wch:55},{wch:60},{wch:10},{wch:12},{wch:8}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Functieprofiel Skillset');
     const meta = [
-      ['METHODIEK — Taakanalyse Skills ESCO',''],
-      ['Bright Work Solutions',''],
-      ['',''],
-      ['Analyse aangemaakt op: '+datumLang,''],
-      ['Functietitel: '+functietitel,''],
-      ['Bedrijf: '+(bedrijf||'-'),''],
-      ['',''],
+      ['METHODIEK — Taakanalyse Skills ESCO',''],['Bright Work Solutions',''],['',''],
+      [`Analyse aangemaakt op: ${datumLang}`,''],
+      [`Functietitel: ${functietitel}`,''],
+      [`Bedrijf: ${bedrijf||'-'}`,''],['',''],
       ['ONDERDEEL','TOELICHTING'],
       ['Taken — hoe bepaald?','Claude analyseert het functieprofiel en combineert drie bronnen: (1) taken expliciet vermeld in het ingevoerde profiel, (2) standaardtaken die bij het beroep horen op basis van trainingsdata, (3) taken passend bij de bedrijfscontext indien opgegeven.'],
       ['Skills — databron','Alle skills komen uit de officiële ESCO-database (European Skills, Competences, Qualifications and Occupations) van de Europese Commissie, versie 1.2, Nederlands. Zie: https://esco.ec.europa.eu'],
-      ['Skills — selectie (max. 300 per analyse)','Uit de ESCO-database van ca. 14.000 skills worden per analyse de 300 meest relevante geselecteerd op basis van woordoverlap met de functietitel en de gegenereerde taken.'],
-      ['Skills — koppeling per taak','Elke skill wordt gekoppeld aan de specifieke taak waarvoor hij relevant is. Dezelfde skill kan meerdere keren voorkomen in de export — één keer per taak waarvoor hij is gekoppeld. Het niveau wordt per taak-skill combinatie apart vastgesteld. Dit is bewust: dezelfde skill kan bij taak A op Beginner-niveau vereist zijn en bij taak B op Expert-niveau. Samenvoegen naar één regel zou een vertekend beeld geven voor gap-analyses en leeruitkomsten.'],
-      ['Niveaus — hoe bepaald?','De niveaus zijn een startpunt gegenereerd door Claude AI op basis van de functiecontext en taakomschrijving. De consultant kan niveaus aanpassen via de sliders in stap 2 van de tool voordat de export wordt gemaakt.'],
-      ['Frequentie','De frequentie (dagelijks/wekelijks/maandelijks) is een schatting van Claude AI op basis van de taakomschrijving. Startpunt voor de consultant.'],
-      ['Belang','Het belang (hoog/middel/laag) is een schatting van Claude AI op basis van de taakomschrijving. Startpunt voor de consultant.'],
-      ['ESCO Definitie','De definities komen rechtstreeks uit de officiële ESCO-datadump. Dit zijn de originele Nederlandse ESCO-beschrijvingen.'],
-      ['ESCO URI','De ESCO URI is de unieke, permanente identifier van elke skill in de Europese database. Via deze URI is de skill opzoekbaar op het ESCO-portaal (https://esco.ec.europa.eu).'],
-      ['',''],
-      ['BEKWAAMHEIDSSCHAAL (1–5)',''],
-      ['Niveau','Omschrijving'],
-      ['1. Beginner','Nog geen kennis en vaardigheid. Beginnend aan nieuwe taken/werkzaamheden. Vereist instructie en inwerken. Gemotiveerd om de skill te ontwikkelen.'],
-      ['2. Basis','Basisniveau van kennis en vaardigheid. Kan eenvoudige en routinematige taken uitvoeren met begeleiding.'],
-      ['3. Gemiddeld','Beschikt over voldoende kennis en vaardigheid. Kan de meeste werkzaamheden zelfstandig uitvoeren. Heeft soms ondersteuning nodig bij complexere situaties.'],
-      ['4. Gevorderd','Hoog niveau van kennis en vaardigheid. Kan complexe werkzaamheden zelfstandig uitvoeren. Functioneert zonder begeleiding.'],
-      ['5. Expert','Zeer hoog niveau van kennis en vaardigheid. Wordt gezien als vraagbaak. Begeleidt anderen, verbetert werkwijzen en draagt bij aan innovatie.'],
-      ['',''],
-      ['EXPORTSTRUCTUUR',''],
-      ['Kolom: Type','Hard = vakinhoudelijke ESCO-skill / Soft = transversale ESCO-vaardigheid'],
-      ['Kolom: Skill','Het Nederlandse ESCO-label van de skill'],
-      ['Kolom: Niveau','Het vereiste bekwaamheidsniveau voor deze skill bij deze specifieke taak (1–5). Dezelfde skill kan bij verschillende taken een ander niveau hebben.'],
-      ['Kolom: Taak','De specifieke taak waarvoor de skill is gekoppeld. Dezelfde skill kan meerdere rijen hebben met verschillende taken en niveaus.'],
-      ['Kolom: ESCO Definitie','De officiële Nederlandse definitie uit de ESCO-datadump'],
-      ['Kolom: ESCO URI','De permanente URI van de skill in de Europese ESCO-database'],
-      ['',''],
-      ['BRONVERMELDING',''],
+      ['Niveaus','Basis = uitvoerend, onder begeleiding; Gevorderd = zelfstandig; Expert = strategisch, begeleidt anderen.'],
+      ['',''],['BRONVERMELDING',''],
       ['ESCO database','https://esco.ec.europa.eu/nl'],
-      ['O*NET Online (referentie)','https://www.onetonline.org'],
-      ['ISCO-08 (referentie)','https://www.ilo.org/ilostat-files/ISCO/newdocs-08-2012/ISCO-08-EN.pdf'],
+      ['Anthropic Claude (AI-model)','https://www.anthropic.com'],
+      [`Bronnen geraadpleegd op: ${datumLang}`,''],
     ];
     const wsMeta = XLSX.utils.aoa_to_sheet(meta);
     wsMeta['!cols'] = [{wch:35},{wch:90}];
     XLSX.utils.book_append_sheet(wb, wsMeta, 'Methodiek');
-
-    XLSX.writeFile(wb, 'Skillset_ESCO_'+(bedrijf?bedrijf.replace(/\s/g,'_')+'_':'')+functietitel.replace(/\s/g,'_')+'_'+datum.replace(/\//g,'-')+'.xlsx');
+    XLSX.writeFile(wb,`Skillset_ESCO_${bedrijf?bedrijf.replace(/\s/g,'_')+'_':''}${functietitel.replace(/\s/g,'_')}_${datum.replace(/\//g,'-')}.xlsx`);
   };
-
   const D = NIVEAU;
-  return (
-    <div>
-      <div className="header">
-        <img src="/logo.png" alt="Bright Work Solutions" className="header-logo"/>
-        <div className="header-titles">
-          <div className="eyebrow">ESCO-aligned · Skills Analyse Tool</div>
-          <div className="site-title"><span>Taakanalyse</span> Skills <em>ESCO</em></div>
-        </div>
-        <div className="header-bedrijf">
-          <input className="field" value={bedrijf} onChange={e=>setBedrijf(e.target.value)} placeholder="Bedrijfsnaam" style={{width:180,fontSize:11}}/>
-        </div>
+  return <>
+    <div className="header">
+      <img src="/logo.png" alt="Bright Work Solutions" className="header-logo"/>
+      <div className="header-titles">
+        <div className="eyebrow">ESCO-aligned · Skills Analyse Tool</div>
+        <div className="site-title"><span>Taakskills</span> Analyse <em>ESCO</em></div>
       </div>
-
-      <div className="main">
-        <aside className="sidebar">
-          <div>
-            <button className={"toggle-btn "+(eigenOpen?"open":"")} onClick={()=>setEigenOpen(o=>!o)}>
-              <span>Bedrijfsskills</span>
-              <span>{eigenOpen?"▲":"▼"}{heeftEigen&&<span className="eigen-sm" style={{marginLeft:6}}>Actief</span>}</span>
-            </button>
-            {eigenOpen&&<div className="eigen-panel">
-              <div>
-                <label className="slabel" style={{color:"#6b21a8"}}>Bedrijfseigen termen & kernwaarden</label>
-                <textarea rows={5} value={eigenTaal} onChange={e=>setEigenTaal(e.target.value)} placeholder={"bijv. Veiligheid eerst,\nKlantpartnerschap,\nZero defects"} style={{minHeight:"auto",fontSize:11}}/>
+      <div className="header-bedrijf">
+        <input className="field" value={bedrijf} onChange={e=>setBedrijf(e.target.value)} placeholder="Bedrijfsnaam" style={{width:180,fontSize:11}}/>
+      </div>
+    </div>
+    <div className="main">
+      <aside className="sidebar">
+        <div>
+          <button className={`toggle-btn ${eigenOpen?"open":""}`} onClick={()=>setEigenOpen(o=>!o)}>
+            <span>Bedrijfsskills</span>
+            <span>{eigenOpen?"▲":"▼"}{heeftEigen&&<span className="eigen-sm" style={{marginLeft:6}}>Actief</span>}</span>
+          </button>
+          {eigenOpen&&<div className="eigen-panel">
+            <div>
+              <label className="slabel" style={{color:"#6b21a8"}}>Bedrijfseigen termen & kernwaarden</label>
+              <textarea rows={5} value={eigenTaal} onChange={e=>setEigenTaal(e.target.value)}
+                placeholder={"bijv. Veiligheid eerst,\nKlantpartnerschap,\nZero defects"} style={{minHeight:"auto",fontSize:11}}/>
+              <div style={{fontSize:9,color:"#6b21a8",marginTop:6,lineHeight:1.7,background:"#f3e8ff",padding:"8px 10px",borderRadius:2}}>
+                Termen die jouw organisatie gebruikt maar niet in standaard vacaturetaal staan. Worden automatisch als <span className="eigen-badge" style={{marginLeft:0}}>Bedrijf</span> gemarkeerd.
               </div>
-            </div>}
-          </div>
-
-          <div>
-            <button className={"toggle-btn "+(bronnenOpen?"open":"")} onClick={()=>setBronnenOpen(o=>!o)} style={bronnenOpen?{borderColor:"#0ea5e9",color:"#0369a1",background:"#f0f9ff",borderRadius:"2px 2px 0 0"}:{}}>
-              <span>Aanvullende bronnen</span>
-              <span>{bronnenOpen?"▲":"▼"}{bronnen.trim()&&<span style={{background:"#e0f2fe",color:"#0369a1",border:"1px solid #7dd3fc",padding:"1px 5px",borderRadius:2,fontSize:9,marginLeft:6}}>Actief</span>}</span>
-            </button>
-            {bronnenOpen&&<div style={{border:"1px solid #0ea5e9",borderTop:"none",padding:10,background:"#f0f9ff",display:"flex",flexDirection:"column",gap:8,borderRadius:"0 0 2px 2px"}}>
-              <div>
-                <label className="slabel" style={{color:"#0369a1"}}>URLs — één per regel</label>
-                <textarea rows={5} value={bronnen} onChange={e=>setBronnen(e.target.value)} placeholder={"https://www.bedrijf.nl/over-ons"} style={{minHeight:"auto",fontSize:11}}/>
+            </div>
+          </div>}
+        </div>
+        <div>
+          <button className={`toggle-btn ${bronnenOpen?"open":""}`} onClick={()=>setBronnenOpen(o=>!o)}
+            style={bronnenOpen?{borderColor:"#0ea5e9",color:"#0369a1",background:"#f0f9ff",borderRadius:"2px 2px 0 0"}:{}}>
+            <span>Aanvullende bronnen</span>
+            <span>{bronnenOpen?"▲":"▼"}{bronnen.trim()&&<span style={{background:"#e0f2fe",color:"#0369a1",border:"1px solid #7dd3fc",padding:"1px 5px",borderRadius:2,fontSize:9,marginLeft:6}}>Actief</span>}</span>
+          </button>
+          {bronnenOpen&&<div style={{border:"1px solid #0ea5e9",borderTop:"none",padding:10,background:"#f0f9ff",display:"flex",flexDirection:"column",gap:8,borderRadius:"0 0 2px 2px"}}>
+            <div>
+              <label className="slabel" style={{color:"#0369a1"}}>URLs van bronnen — één per regel, beginnen met https://</label>
+              <textarea rows={5} value={bronnen} onChange={e=>setBronnen(e.target.value)}
+                placeholder={"https://www.bedrijf.nl/over-ons\nhttps://www.bedrijf.nl/jaarverslag.pdf\nhttps://www.kadaster.nl/..."} style={{minHeight:"auto",fontSize:11}}/>
+              <div style={{fontSize:9,color:"#0369a1",marginTop:6,lineHeight:1.7,background:"#e0f2fe",padding:"8px 10px",borderRadius:2}}>
+Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
               </div>
-              <div>
-                <label className="slabel" style={{color:"#0369a1"}}>Of upload een PDF</label>
-                <label style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",border:"1px dashed #7dd3fc",borderRadius:2,cursor:"pointer",background:"white",fontSize:10,color:"#0369a1"}}>
-                  <span>📄</span><span>{pdfNaam||"Klik om PDF te selecteren"}</span>
-                  <input type="file" accept=".pdf" style={{display:"none"}} onChange={e=>leesUitPdf(e.target.files[0])}/>
-                </label>
-                {pdfTekst&&<div style={{fontSize:9,color:"#2d6a4f",marginTop:4,padding:"4px 8px",background:"#f0faf2",borderRadius:2}}>✓ PDF gelezen — {pdfTekst.length} tekens</div>}
-              </div>
-            </div>}
-          </div>
-
-          <div>
-            <label className="slabel">Functieprofiel invoer</label>
-            <textarea rows={9} value={input} onChange={e=>setInput(e.target.value)} placeholder={"Plak hier een functieprofiel,\nvacaturetekst of\ntaakomschrijving..."}/>
-          </div>
-
-          {stap===0&&<button className="btn-main" onClick={analyseerTaken} disabled={loading||!input.trim()}>
-            {loading?<><span className="spin"/>Analyseren...</>:"Stap 1: Genereer taken →"}
+            </div>
+            <div>
+              <label className="slabel" style={{color:"#0369a1"}}>Of upload een PDF (jaarverslag, rapport)</label>
+              <label style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",border:"1px dashed #7dd3fc",borderRadius:2,cursor:"pointer",background:"white",fontSize:10,color:"#0369a1"}}>
+                <span>📄</span>
+                <span>{pdfNaam || "Klik om een PDF te selecteren"}</span>
+                <input type="file" accept=".pdf" style={{display:"none"}} onChange={e=>leesUitPdf(e.target.files[0])}/>
+              </label>
+              {pdfTekst&&<div style={{fontSize:9,color:"#2d6a4f",marginTop:4,padding:"4px 8px",background:"#f0faf2",borderRadius:2}}>✓ PDF gelezen — {pdfTekst.length} tekens gevonden</div>}
+              {pdfNaam&&!pdfTekst&&<div style={{fontSize:9,color:"#9b2226",marginTop:4}}>⚠ Geen tekst gevonden in PDF</div>}
+            </div>
+          </div>}
+        </div>
+        <div>
+          <label className="slabel">Functieprofiel invoer</label>
+          <textarea rows={9} value={input} onChange={e=>setInput(e.target.value)}
+            placeholder={"Plak hier een functieprofiel,\nvacaturetekst of\ntaakomschrijving..."}/>
+        </div>
+        {stap===0&&<button className="btn-main" onClick={analyseerTaken} disabled={loading||!input.trim()}>
+          {loading?<><span className="spin"/>Analyseren...</>:"Stap 1: Genereer taken →"}
+        </button>}
+        {stap>=1&&<>
+          <button className="btn-main" onClick={analyseerTaken} disabled={loading}>
+            {loading&&loadingMsg.includes("taken")?<><span className="spin"/>Laden...</>:"↺ Heranalyseer taken"}
+          </button>
+          <button className="btn-main" onClick={koppelSkills} disabled={loading||geselecteerdeTaken.length===0} style={{background:"#2d6a4f"}}>
+            {loading&&loadingMsg.includes("ESCO")?<><span className="spin"/>ESCO koppelen...</>:`Stap 2: Koppel ESCO skills (${geselecteerdeTaken.length}) →`}
+          </button>
+          {stap>=2&&<button className="btn-main" onClick={()=>setStap(3)} style={{background:"#1a56db"}}>
+            Stap 3: Definitieve skillset →
           </button>}
-
-          {stap>=1&&<>
-            <button className="btn-main" onClick={analyseerTaken} disabled={loading}>
-              {loading&&loadingMsg.includes("taken")?<><span className="spin"/>Laden...</>:"↺ Heranalyseer taken"}
-            </button>
-            <button className="btn-main" onClick={koppelSkills} disabled={loading||geselecteerdeTaken.length===0} style={{background:"#2d6a4f"}}>
-              {loading&&loadingMsg.includes("ESCO")?<><span className="spin"/>ESCO koppelen...</>:"Stap 2: Koppel ESCO skills ("+geselecteerdeTaken.length+") →"}
-            </button>
-            {stap>=2&&<button className="btn-main" onClick={()=>setStap(3)} style={{background:"#1a56db"}}>
-              Stap 3: Definitieve skillset →
-            </button>}
-            <button className="btn-ghost" onClick={()=>{setStap(0);setTaken([]);setSkillsData(null);setOverrides({});setSelectedDef({});setPdfTekst('');setPdfNaam('');}}>
-              ↺ Opnieuw beginnen
-            </button>
-          </>}
-
-          {error&&<div className="err">⚠ {error}</div>}
-
-          <div className="legend">
-            <label className="slabel">Bronlegenda</label>
-            <div className="li"><span>📄</span><div><div style={{fontWeight:500}}>Profiel</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit vacature/functieprofiel</div></div></div>
-            <div className="li"><span>🔧</span><div><div style={{fontWeight:500}}>Beroep</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit beroeps-/sectorkennis</div></div></div>
-            <div className="li"><span>🏢</span><div><div style={{fontWeight:500}}>Bedrijf</div><div style={{fontSize:9,color:"var(--muted)"}}>Jouw bedrijfsskills</div></div></div>
-            <div className="li"><span>🔗</span><div><div style={{fontWeight:500}}>Bron</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit aanvullende bronnen</div></div></div>
-            <div style={{borderTop:"1px solid var(--border)",paddingTop:10,marginTop:6}}>
-              <label className="slabel">Niveaulegenda (1–5)</label>
-              {Object.entries(D).map(([l,d],i)=><div key={l} className="li">
-                <div className="ld" style={{background:d.d}}/>
-                <div><div style={{color:d.t,fontWeight:500}}>{i+1}. {l}</div><div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{d.desc}</div></div>
-              </div>)}
+          <button className="btn-ghost" onClick={()=>{setStap(0);setTaken([]);setSkillsData(null);setOverrides({});setSelectedDef({});setPdfTekst('');setPdfNaam('');setEigenTaken({});setEigenSkillNaam({});setEigenSkillNiveau({});}}>
+            ↺ Opnieuw beginnen
+          </button>
+        </>}
+        {error&&<div className="err">⚠ {error}</div>}
+        <div className="legend">
+          <label className="slabel">Bronlegenda</label>
+          <div className="li"><span style={{fontSize:10}}>📄</span><div><div style={{fontWeight:500}}>Profiel</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit vacature/functieprofiel</div></div></div>
+          <div className="li"><span style={{fontSize:10}}>🔧</span><div><div style={{fontWeight:500}}>Beroep</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit beroeps-/sectorkennis</div></div></div>
+          <div className="li"><span style={{fontSize:10}}>🏢</span><div><div style={{fontWeight:500}}>Bedrijf</div><div style={{fontSize:9,color:"var(--muted)"}}>Jouw bedrijfsskills</div></div></div>
+          <div className="li"><span style={{fontSize:10}}>🔗</span><div><div style={{fontWeight:500}}>Bron</div><div style={{fontSize:9,color:"var(--muted)"}}>Uit aanvullende bronnen</div></div></div>
+          <div style={{borderTop:"1px solid var(--border)",paddingTop:10,marginTop:6}}>
+            <label className="slabel">Niveaulegenda (1–5)</label>
+            {Object.entries(D).map(([l,d])=><div key={l} className="li">
+              <div className="ld" style={{background:d.d}}/>
+              <div><div style={{color:d.t,fontWeight:500}}>{l}</div><div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{d.desc}</div></div>
+            </div>)}
+          </div>
+        </div>
+      </aside>
+      <main className="content">
+        {loading&&<div className="ls">
+          <div className="ls-t">{loadingMsg||"Laden..."}</div>
+          <div className="lb"/>
+          <div style={{fontSize:9,color:"var(--muted)",letterSpacing:"0.12em",textTransform:"uppercase"}}>Even geduld</div>
+        </div>}
+        {!loading&&stap===0&&<div className="empty">
+          <div className="empty-g">Σ</div>
+          <div className="empty-t">Plak een functieprofiel om te beginnen</div>
+          <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",maxWidth:300,lineHeight:1.6,marginTop:8}}>
+            Stap 1 → Taken genereren & valideren<br/>Stap 2 → Skills koppelen<br/>Stap 3 → Definitieve skillset exporteren
+          </div>
+        </div>}
+        {!loading&&stap>=1&&stap!==2&&stap!==3&&<div className="fi" style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+          <div className="rh">
+            <div className="rt">{functietitel}</div>
+            <div className="rs">{samenvatting}</div>
+            <div className="rm">
+              <span><strong>{taken.length}</strong> taken totaal</span>
+              <span><strong>{geselecteerdeTaken.length}</strong> geselecteerd</span>
+            </div>
+            {vergelijkbareTitels.length>0&&<div className="rv">Ook bekend als: {vergelijkbareTitels.join(" · ")}</div>}
+          </div>
+          <div style={{padding:"10px 22px",background:"var(--surface)",borderBottom:"1px solid var(--border)",fontSize:10,color:"var(--muted)"}}>
+            Vink de taken aan die van toepassing zijn. Klik daarna op <strong>Stap 2</strong> om ESCO-skills te koppelen.
+          </div>
+          {bronnenStatus.length>0&&<div style={{padding:"8px 22px",background:"var(--surface)",borderBottom:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:3}}>
+            {bronnenStatus.map((b,i)=><div key={i} style={{fontSize:10,color:b.ok?"#2d6a4f":"#9b2226",display:"flex",gap:6,alignItems:"center"}}>
+              <span>{b.ok?"✓":"⚠"}</span><span>{b.url}</span><span style={{opacity:.7}}>— {b.melding}</span>
+            </div>)}
+          </div>}
+          <div className="tc"><div className="fi">
+            {taken.map(t=><div key={t.id} className={`taak-row ${t.geselecteerd?"selected":""}`} onClick={()=>toggleTaak(t.id)}>
+              <div className="taak-check">{t.geselecteerd&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
+              <div className="taak-body">
+                <div className="taak-naam">{t.taak}</div>
+                <div className="taak-meta">
+                  {t.bron&&<span className="tbadge" style={{background:t.bron==="profiel"?"#e8f0fe":t.bron==="beroep"?"#fef3d0":"#f3e8ff",color:t.bron==="profiel"?"#1a56db":t.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:t.bron==="profiel"?"#93b4fd":t.bron==="beroep"?"#e8c96a":"#c084fc"}}>{t.bron==="profiel"?"📄 profiel":t.bron==="beroep"?"🔧 beroep":t.bron==="bron"?"🔗 bron":"🏢 bedrijf"}</span>}
+                  {t.frequentie&&<span className="tbadge" style={{background:"var(--bg)",color:"var(--muted)",borderColor:"var(--border)"}}>{t.frequentie}</span>}
+                  {t.belang&&<span className="tbadge" style={{background:t.belang==="hoog"?"#fce4e4":t.belang==="middel"?"#fef3d0":"#d8f3dc",color:t.belang==="hoog"?"#9b2226":t.belang==="middel"?"#7a5c00":"#2d6a4f",borderColor:t.belang==="hoog"?"#e07070":t.belang==="middel"?"#e8c96a":"#74c69d"}}>belang: {t.belang}</span>}
+                </div>
+              </div>
+            </div>)}
+          </div></div>
+        </div>}
+        {!loading&&stap===2&&skillsData&&<div className="fi" style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+          <div className="rh">
+            <div className="rt">{functietitel}</div>
+            <div className="rm">
+              <span><strong>{geselecteerdeTaken.length}</strong> taken</span>
+              <span><strong>{alleHardskills.length}</strong> hardskills</span>
+              <span><strong>{alleSoftskills.length}</strong> softskills</span>
             </div>
           </div>
-        </aside>
-
-        <main className="content">
-          {loading&&<div className="ls">
-            <div className="ls-t">{loadingMsg||"Laden..."}</div>
-            <div className="lb"/>
-            <div style={{fontSize:9,color:"var(--muted)",letterSpacing:"0.12em",textTransform:"uppercase"}}>Even geduld</div>
-          </div>}
-
-          {!loading&&stap===0&&<div className="empty">
-            <div className="empty-g">Σ</div>
-            <div className="empty-t">Plak een functieprofiel om te beginnen</div>
-            <div style={{fontSize:10,color:"var(--muted)",textAlign:"center",maxWidth:300,lineHeight:1.6,marginTop:8}}>
-              Stap 1 → Taken genereren & valideren<br/>
-              Stap 2 → ESCO-skills koppelen<br/>
-              Stap 3 → Definitieve skillset exporteren
-            </div>
-          </div>}
-
-          {!loading&&stap>=1&&stap!==2&&stap!==3&&<div className="fi" style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
-            <div className="rh">
-              <div className="rt">{functietitel}</div>
-              <div className="rs">{samenvatting}</div>
-              <div className="rm">
-                <span><strong>{taken.length}</strong> taken totaal</span>
-                <span><strong>{geselecteerdeTaken.length}</strong> geselecteerd</span>
-              </div>
-              {vergelijkbareTitels.length>0&&<div className="rv">Ook bekend als: {vergelijkbareTitels.join(" · ")}</div>}
-            </div>
-            <div style={{padding:"10px 22px",background:"var(--surface)",borderBottom:"1px solid var(--border)",fontSize:10,color:"var(--muted)"}}>
-              Vink de taken aan die van toepassing zijn. Klik daarna op <strong>Stap 2</strong> om ESCO-skills te koppelen.
-            </div>
-            {bronnenStatus.length>0&&<div style={{padding:"8px 22px",background:"var(--surface)",borderBottom:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:3}}>
-              {bronnenStatus.map((b,i)=><div key={i} style={{fontSize:10,color:b.ok?"#2d6a4f":"#9b2226",display:"flex",gap:6,alignItems:"center"}}>
-                <span>{b.ok?"✓":"⚠"}</span><span>{b.url}</span><span style={{opacity:.7}}>— {b.melding}</span>
-              </div>)}
-            </div>}
-            <div className="tc"><div className="fi">
-              {taken.map(t=><div key={t.id} className={"taak-row "+(t.geselecteerd?"selected":"")} onClick={()=>toggleTaak(t.id)}>
-                <div className="taak-check">{t.geselecteerd&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
-                <div className="taak-body">
-                  <div className="taak-naam">{t.taak}</div>
-                  <div className="taak-meta">
-                    {t.bron&&<span className="tbadge" style={{background:t.bron==="profiel"?"#e8f0fe":t.bron==="beroep"?"#fef3d0":"#f3e8ff",color:t.bron==="profiel"?"#1a56db":t.bron==="beroep"?"#7a5c00":"#6b21a8",borderColor:t.bron==="profiel"?"#93b4fd":t.bron==="beroep"?"#e8c96a":"#c084fc"}}>{t.bron==="profiel"?"📄 profiel":t.bron==="beroep"?"🔧 beroep":t.bron==="bron"?"🔗 bron":"🏢 bedrijf"}</span>}
-                    {t.frequentie&&<span className="tbadge" style={{background:"var(--bg)",color:"var(--muted)",borderColor:"var(--border)"}}>{t.frequentie}</span>}
-                    {t.belang&&<span className="tbadge" style={{background:t.belang==="hoog"?"#fce4e4":t.belang==="middel"?"#fef3d0":"#d8f3dc",color:t.belang==="hoog"?"#9b2226":t.belang==="middel"?"#7a5c00":"#2d6a4f",borderColor:t.belang==="hoog"?"#e07070":t.belang==="middel"?"#e8c96a":"#74c69d"}}>belang: {t.belang}</span>}
+          <div className="steps">
+            <button className="step-btn done" onClick={()=>setStap(1)}>◀ Taken aanpassen</button>
+            <button className="step-btn active">Stap 2: Skills & niveaus</button>
+            <button className="step-btn" onClick={()=>setStap(3)}>Stap 3: Definitieve set ▶</button>
+          </div>
+          <div className="tc">
+            {(skillsData.taken||[]).map((t,i)=>{
+              const taakInfo = geselecteerdeTaken.find(gt=>gt.id===t.id);
+              const open = openTask===i;
+              return <div key={t.id||i} className={`tk ${open?"open":""}`}>
+                <div className="tkh" onClick={()=>setOpenTask(open?null:i)}>
+                  <div className="tnum">{String(i+1).padStart(2,"0")}</div>
+                  <div className="tbody">
+                    <div className="tname">{taakInfo?.taak||`Taak ${t.id}`}</div>
+                    {!open&&<div className="pills">
+                      {(t.hardskills||[]).slice(0,3).map(s=>{
+                        const n=getNiveau(t.id,s.skill,s.niveau); const d=D[n];
+                        return <span key={s.skill} className="pill" style={{background:s.eigen?"#f3e8ff":d.k,color:s.eigen?"#6b21a8":d.t,borderColor:s.eigen?"#c084fc":d.b}}>
+                          <span className="pd" style={{background:s.eigen?"#c084fc":d.d}}/>{s.skill}
+                        </span>;
+                      })}
+                    </div>}
                   </div>
+                  <div className="tchev">{open?"▲":"▼"}</div>
                 </div>
-              </div>)}
-            </div></div>
-          </div>}
-
-          {!loading&&stap===2&&skillsData&&<div className="fi" style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
-            <div className="rh">
-              <div className="rt">{functietitel}</div>
-              <div className="rm">
-                <span><strong>{geselecteerdeTaken.length}</strong> taken</span>
-                <span><strong>{alleHardskills.length}</strong> hardskills</span>
-                <span><strong>{alleSoftskills.length}</strong> softskills</span>
-              </div>
-            </div>
-            <div className="steps">
-              <button className="step-btn done" onClick={()=>setStap(1)}>◀ Taken aanpassen</button>
-              <button className="step-btn active">Stap 2: Skills & niveaus</button>
-              <button className="step-btn" onClick={()=>setStap(3)}>Stap 3: Definitieve set ▶</button>
-            </div>
-            <div className="tc">
-              {(skillsData.taken||[]).map((t,i)=>{
-                const taakInfo = geselecteerdeTaken.find(gt=>gt.id===t.id);
-                const open = openTask===i;
-                return <div key={t.id||i} className={"tk "+(open?"open":"")}>
-                  <div className="tkh" onClick={()=>setOpenTask(open?null:i)}>
-                    <div className="tnum">{String(i+1).padStart(2,"0")}</div>
-                    <div className="tbody">
-                      <div className="tname">{taakInfo?.taak||"Taak "+t.id}</div>
-                      {!open&&<div className="pills">
-                        {(t.hardskills||[]).slice(0,3).map(s=>{
-                          const n=getNiveau(t.id,s.skill,s.niveau); const d=D[n]||D["Basis"];
-                          return <span key={s.skill} className="pill" style={{background:s.eigen?"#f3e8ff":d.k,color:s.eigen?"#6b21a8":d.t,borderColor:s.eigen?"#c084fc":d.b}}>
-                            <span className="pd" style={{background:s.eigen?"#c084fc":d.d}}/>{s.skill}
-                          </span>;
-                        })}
-                      </div>}
+                {open&&<div className="tex">
+                  <div>
+                    <div className="secl">Hardskills</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                      {(t.hardskills||[]).map(s=>{
+                        const cur=getNiveau(t.id,s.skill,s.niveau); const d=D[cur]; const val=NIVEAUS.indexOf(cur); const changed=cur!==s.niveau;
+                        return <div key={s.skill} className="sk-card" style={{borderColor:s.eigen?"#c084fc":"var(--border)"}}>
+                          <div className="sk-top">
+                            <span className="pd" style={{background:s.eigen?"#c084fc":d.d,width:6,height:6}}/>
+                            <div className="sk-name">
+                              {s.skill}
+                              {s.eigen&&<span className="eigen-badge">Eigen</span>}
+                              {!s.eigen&&s.esco_matched&&s.esco_code&&<span className="esco-badge" title={s.esco_uri||''}>{s.esco_code}</span>}
+                              {!s.eigen&&!s.esco_matched&&<span className="no-match">geen ESCO match</span>}
+                              {changed&&<span className="was">(was: {s.niveau})</span>}
+                              {s.esco_label&&s.esco_label!==s.skill&&<div style={{fontSize:9,color:"#1a56db",marginTop:1,opacity:.8}}>↳ {s.esco_label}</div>}
+                              {s.toelichting&&<div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{s.toelichting}</div>}
+                            </div>
+                            <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b}}>{cur}</span>
+                          </div>
+                          <div className="sl-wrap">
+                            <input type="range" min={0} max={4} step={1} value={val<0?1:val}
+                              style={{background:`linear-gradient(to right,${s.eigen?"#c084fc":d.d} 0%,${s.eigen?"#c084fc":d.d} ${val*25}%,var(--border) ${val*25}%,var(--border) 100%)`}}
+                              onChange={e=>setNiveau(t.id,s.skill,NIVEAUS[parseInt(e.target.value)])}/>
+                            <div className="sl-labels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+                          </div>
+                        </div>;
+                      })}
                     </div>
-                    <div className="tchev">{open?"▲":"▼"}</div>
                   </div>
-                  {open&&<div className="tex">
-                    <div>
-                      <div className="secl">Hardskills</div>
-                      <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                        {(t.hardskills||[]).map(s=>{
-                          const cur=getNiveau(t.id,s.skill,s.niveau); const d=D[cur]||D["Basis"]; const val=NIVEAUS.indexOf(cur); const changed=cur!==s.niveau;
-                          return <div key={s.skill} className="sk-card" style={{borderColor:s.eigen?"#c084fc":"var(--border)"}}>
-                            <div className="sk-top">
-                              <span className="pd" style={{background:s.eigen?"#c084fc":d.d,width:6,height:6}}/>
-                              <div className="sk-name">
-                                {s.skill}
-                                {s.eigen&&<span className="eigen-badge">Eigen</span>}
-                                {!s.eigen&&s.esco_matched&&s.esco_code&&<span className="esco-badge" title={s.esco_uri||''}>{s.esco_code}</span>}
-                                {!s.eigen&&!s.esco_matched&&<span className="no-match">geen ESCO match</span>}
-                                {changed&&<span className="was">(was: {s.niveau})</span>}
-                                {s.toelichting&&<div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{s.toelichting}</div>}
-                              </div>
-                              <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b}}>{NIVEAUS.indexOf(cur)+1}. {cur}</span>
+                  <div>
+                    <div className="secl">Softskills</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                      {(t.softskills||[]).map(s=>{
+                        const cur=getNiveau(t.id,`soft-${s.softskill}`,s.niveau||"Gevorderd"); const d=D[cur]; const val=NIVEAUS.indexOf(cur); const changed=cur!==(s.niveau||"Gevorderd");
+                        return <div key={s.softskill} className="sk-card">
+                          <div className="sk-top">
+                            <span className="pd" style={{background:"#c4860a",width:6,height:6}}/>
+                            <div className="sk-name">
+                              {s.softskill}
+                              {s.esco_matched&&s.esco_code&&<span className="esco-badge">{s.esco_code}</span>}
+                              {!s.esco_matched&&<span className="no-match">geen ESCO match</span>}
+                              {changed&&<span className="was">(was: {s.niveau||"Gevorderd"})</span>}
+                              {s.toelichting&&<div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{s.toelichting}</div>}
                             </div>
-                            <div className="sl-wrap">
-                              <input type="range" min={0} max={4} step={1} value={val<0?1:val}
-                                style={{background:"linear-gradient(to right,"+(s.eigen?"#c084fc":d.d)+" 0%,"+(s.eigen?"#c084fc":d.d)+" "+(val*25)+"%, var(--border) "+(val*25)+"%, var(--border) 100%)"}}
-                                onChange={e=>setNiveau(t.id,s.skill,NIVEAUS[parseInt(e.target.value)])}/>
-                              <div className="sl-labels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
-                            </div>
-                          </div>;
-                        })}
+                            <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b}}>{cur}</span>
+                          </div>
+                          <div className="sl-wrap">
+                            <input type="range" min={0} max={4} step={1} value={val<0?1:val}
+                              style={{background:`linear-gradient(to right,${d.d} 0%,${d.d} ${val*25}%,var(--border) ${val*25}%,var(--border) 100%)`}}
+                              onChange={e=>setNiveau(t.id,`soft-${s.softskill}`,NIVEAUS[parseInt(e.target.value)])}/>
+                            <div className="sl-labels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+                          </div>
+                        </div>;
+                      })}
+                    </div>
+                  </div>
+                </div>}
+              </div>;
+            })}
+            {eigenTermenLijst.length>0&&<div style={{marginTop:16,border:"1px solid #c084fc",borderRadius:2,overflow:"hidden"}}>
+              <div style={{background:"#f3e8ff",padding:"8px 12px",fontSize:8,letterSpacing:".15em",textTransform:"uppercase",color:"#6b21a8",borderBottom:"1px solid #c084fc"}}>
+                Bedrijfseigen skills — koppel ESCO skill + taken
+              </div>
+              <div style={{padding:"10px 12px",display:"flex",flexDirection:"column",gap:10}}>
+                {eigenTermenLijst.map(term=>{
+                  const niv = getEigenSkillNiveau(term);
+                  const d = D[niv];
+                  const val = NIVEAUS.indexOf(niv);
+                  return <div key={term} style={{border:"1px solid #c084fc",borderRadius:2,padding:"10px 12px",background:"#fdf9ff"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+                      <span style={{width:6,height:6,borderRadius:"50%",background:"#c084fc",flexShrink:0}}/>
+                      <div style={{flex:1}}>
+                        <span style={{fontSize:11,fontWeight:500}}>{term}</span>
+                        <span className="eigen-badge" style={{marginLeft:4}}>Bedrijfsterm</span>
                       </div>
                     </div>
-                    <div>
-                      <div className="secl">Softskills</div>
-                      <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                        {(t.softskills||[]).map(s=>{
-                          const cur=getNiveau(t.id,'soft-'+s.softskill,s.niveau||"Basis"); const d=D[cur]||D["Basis"]; const val=NIVEAUS.indexOf(cur); const changed=cur!==(s.niveau||"Basis");
-                          return <div key={s.softskill} className="sk-card">
-                            <div className="sk-top">
-                              <span className="pd" style={{background:"#c4860a",width:6,height:6}}/>
-                              <div className="sk-name">
-                                {s.softskill}
-                                {s.esco_matched&&s.esco_code&&<span className="esco-badge">{s.esco_code}</span>}
-                                {!s.esco_matched&&<span className="no-match">geen ESCO match</span>}
-                                {changed&&<span className="was">(was: {s.niveau||"Basis"})</span>}
-                                {s.toelichting&&<div style={{fontSize:9,color:"var(--muted)",marginTop:1}}>{s.toelichting}</div>}
-                              </div>
-                              <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b}}>{NIVEAUS.indexOf(cur)+1}. {cur}</span>
-                            </div>
-                            <div className="sl-wrap">
-                              <input type="range" min={0} max={4} step={1} value={val<0?1:val}
-                                style={{background:"linear-gradient(to right,"+d.d+" 0%,"+d.d+" "+(val*25)+"%, var(--border) "+(val*25)+"%, var(--border) 100%)"}}
-                                onChange={e=>setNiveau(t.id,'soft-'+s.softskill,NIVEAUS[parseInt(e.target.value)])}/>
-                              <div className="sl-labels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
-                            </div>
-                          </div>;
-                        })}
-                      </div>
+                    <div style={{fontSize:8,letterSpacing:".12em",textTransform:"uppercase",color:"#6b21a8",marginBottom:3}}>ESCO skill naam</div>
+                    <input className="field" value={getEigenSkillNaam(term)} onChange={e=>setEigenSkillNaam(p=>({...p,[term]:e.target.value}))} placeholder="bijv. contactdozen bedraden..." style={{marginBottom:8,fontSize:10,background:"white",borderColor:"#c084fc"}}/>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                      <div style={{fontSize:8,letterSpacing:".12em",textTransform:"uppercase",color:"#6b21a8"}}>Niveau</div>
+                      <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b,fontSize:9}}>{niv}</span>
                     </div>
-                  </div>}
+                    <div className="sl-wrap" style={{marginBottom:8}}>
+                      <input type="range" min={0} max={2} step={1} value={val}
+                        style={{background:`linear-gradient(to right,#c084fc 0%,#c084fc ${val*50}%,var(--border) ${val*50}%,var(--border) 100%)`}}
+                        onChange={e=>setEigenSkillNiveau(p=>({...p,[term]:NIVEAUS[parseInt(e.target.value)]}))}/>
+                      <div className="sl-labels"><span>Basis</span><span>Gevorderd</span><span>Expert</span></div>
+                    </div>
+                    <div style={{fontSize:8,letterSpacing:".12em",textTransform:"uppercase",color:"#6b21a8",marginBottom:4}}>Gekoppelde taken (max 5)</div>
+                    {[0,1,2,3,4].map(idx=><input key={idx} className="field" value={(eigenTaken[term]||[])[idx]||''} onChange={e=>setEigenTaak(term,idx,e.target.value)} placeholder={`Taak ${idx+1}...`} style={{marginBottom:3,fontSize:10,background:"white",borderColor:"#c084fc"}}/>)}
+                  </div>;
+                })}
+              </div>
+            </div>}
+          </div>
+        </div>}
+        {!loading&&stap===3&&<div className="fi" style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
+          <div className="rh">
+            <div className="rt">{functietitel} — Definitieve Skillset</div>
+            <div className="rm">
+              <span><strong>{selHard.length}</strong> hardskills</span>
+              <span><strong>{selSoft.length}</strong> softskills</span>
+              <span><strong>{selHard.length+selSoft.length}</strong> totaal</span>
+            </div>
+          </div>
+          <div className="steps">
+            <button className="step-btn done" onClick={()=>setStap(1)}>◀ Taken</button>
+            <button className="step-btn done" onClick={()=>setStap(2)}>◀ Skills aanpassen</button>
+            <button className="step-btn active">Stap 3: Definitieve set</button>
+          </div>
+          <div className="tc">
+            <div className="counter-box">
+              <div className="counter">Hardskills: <strong>{selHard.length}</strong></div>
+              <div className="counter">Softskills: <strong>{selSoft.length}</strong></div>
+              <div className="counter" style={{fontWeight:600}}>Totaal: <strong>{selHard.length+selSoft.length}</strong></div>
+              {(selHard.length+selSoft.length)>0&&<div style={{display:"flex",gap:8,marginLeft:"auto"}}>
+                <button onClick={exportExcel}
+                  style={{padding:"5px 14px",background:"#2d6a4f",color:"white",border:"none",fontFamily:"'Geist Mono',monospace",fontSize:10,letterSpacing:".1em",textTransform:"uppercase",cursor:"pointer",borderRadius:2}}>
+                  ↓ Export Excel
+                </button>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                  <button onClick={exportWord}
+                    style={{padding:"5px 14px",background:"#1a56db",color:"white",border:"none",fontFamily:"'Geist Mono',monospace",fontSize:10,letterSpacing:".1em",textTransform:"uppercase",cursor:"pointer",borderRadius:2}}>
+                    ↓ Export Word
+                  </button>
+                  <label style={{display:"flex",alignItems:"center",gap:5,fontSize:9,color:"#1a56db",cursor:"pointer"}}>
+                    <input type="checkbox" checked={uitgebreid} onChange={e=>setUitgebreid(e.target.checked)} style={{cursor:"pointer"}}/>
+                    Uitgebreide functieomschrijving
+                  </label>
+                </div>
+              </div>}
+            </div>
+            <div style={{marginBottom:16}}>
+              <div className="secl" style={{marginBottom:8}}>Hardskills — selecteer gewenste skills</div>
+              {alleHardskills.map(s=>{
+                const k=`h-${s.skill}`; const sel=!!selectedDef[k]; const d=D[s.niveau];
+                return <div key={k} className={`def-row ${sel?"selected":""}`} onClick={()=>setSelectedDef(p=>({...p,[k]:!p[k]}))}>
+                  <div className="def-check">{sel&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
+                  <span className="pd" style={{background:s.eigen?"#c084fc":d.d}}/>
+                  <div style={{flex:1,fontSize:11}}>
+                    {s.eigen?(getEigenSkillNaam(s.skill)||s.skill):s.skill}
+                    {s.eigen&&<span className="eigen-badge" title={s.skill}>Eigen</span>}
+                    {s.esco_code&&<span className="esco-badge" title={s.esco_uri||''}>{s.esco_code}</span>}
+                    {s.esco_label&&s.esco_label!==s.skill&&<span style={{fontSize:9,color:"#1a56db",marginLeft:5,opacity:.8}}>↳ {s.esco_label}</span>}
+                  </div>
+                  <span style={{fontSize:9,padding:"2px 7px",borderRadius:2,border:"1px solid",background:d.k,color:d.t,borderColor:d.b,flexShrink:0}}>{s.niveau}</span>
                 </div>;
               })}
             </div>
-          </div>}
-
-          {!loading&&stap===3&&<div className="fi" style={{display:"flex",flexDirection:"column",flex:1,overflow:"hidden"}}>
-            <div className="rh">
-              <div className="rt">{functietitel} — Definitieve Skillset</div>
-              <div className="rm">
-                <span><strong>{selHard.length}</strong> hardskills</span>
-                <span><strong>{selSoft.length}</strong> softskills</span>
-                <span><strong>{selHard.length+selSoft.length}</strong> totaal</span>
-              </div>
-            </div>
-            <div className="steps">
-              <button className="step-btn done" onClick={()=>setStap(1)}>◀ Taken</button>
-              <button className="step-btn done" onClick={()=>setStap(2)}>◀ Skills aanpassen</button>
-              <button className="step-btn active">Stap 3: Definitieve set</button>
-            </div>
-            <div className="tc">
-              <div className="counter-box">
-                <div className="counter">Hardskills: <strong>{selHard.length}</strong></div>
-                <div className="counter">Softskills: <strong>{selSoft.length}</strong></div>
-                <div className="counter" style={{fontWeight:600}}>Totaal: <strong>{selHard.length+selSoft.length}</strong></div>
-                {(selHard.length+selSoft.length)>0&&<div style={{display:"flex",gap:8,marginLeft:"auto"}}>
-                  <button onClick={exportExcel} style={{padding:"5px 14px",background:"#2d6a4f",color:"white",border:"none",fontFamily:"'Geist Mono',monospace",fontSize:10,letterSpacing:".1em",textTransform:"uppercase",cursor:"pointer",borderRadius:2}}>↓ Export Excel</button>
-                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-                    <button onClick={exportWord} style={{padding:"5px 14px",background:"#1a56db",color:"white",border:"none",fontFamily:"'Geist Mono',monospace",fontSize:10,letterSpacing:".1em",textTransform:"uppercase",cursor:"pointer",borderRadius:2}}>↓ Export Word</button>
-                    <label style={{display:"flex",alignItems:"center",gap:5,fontSize:9,color:"#1a56db",cursor:"pointer"}}>
-                      <input type="checkbox" checked={uitgebreid} onChange={e=>setUitgebreid(e.target.checked)} style={{cursor:"pointer"}}/>
-                      Uitgebreide functieomschrijving
-                    </label>
+            <div>
+              <div className="secl" style={{marginBottom:8}}>Softskills — selecteer gewenste skills</div>
+              {alleSoftskills.map(s=>{
+                const k=`s-${s.softskill}`; const sel=!!selectedDef[k];
+                return <div key={k} className={`def-row ${sel?"selected":""}`} onClick={()=>setSelectedDef(p=>({...p,[k]:!p[k]}))}>
+                  <div className="def-check">{sel&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
+                  <span style={{width:5,height:5,borderRadius:"50%",background:"#c4860a",flexShrink:0}}/>
+                  <div style={{flex:1,fontSize:11}}>
+                    {s.softskill}
+                    {s.esco_code&&<span className="esco-badge">{s.esco_code}</span>}
                   </div>
-                </div>}
-              </div>
-              <div style={{marginBottom:16}}>
-                <div className="secl" style={{marginBottom:8}}>Hardskills — selecteer gewenste skills</div>
-                {alleHardskills.map(s=>{
-                  const k='h-'+s.skill; const sel=!!selectedDef[k]; const d=D[s.niveau]||D["Basis"];
-                  return <div key={k} className={"def-row "+(sel?"selected":"")} onClick={()=>setSelectedDef(p=>({...p,[k]:!p[k]}))}>
-                    <div className="def-check">{sel&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
-                    <span className="pd" style={{background:s.eigen?"#c084fc":d.d}}/>
-                    <div style={{flex:1,fontSize:11}}>
-                      {s.skill}
-                      {s.eigen&&<span className="eigen-badge">Eigen</span>}
-                      {s.esco_code&&<span className="esco-badge" title={s.esco_uri||''}>{s.esco_code}</span>}
-                    </div>
-                    <span style={{fontSize:9,padding:"2px 7px",borderRadius:2,border:"1px solid",background:d.k,color:d.t,borderColor:d.b,flexShrink:0}}>{NIVEAUS.indexOf(s.niveau)+1}. {s.niveau}</span>
-                  </div>;
-                })}
-              </div>
-              <div>
-                <div className="secl" style={{marginBottom:8}}>Softskills — selecteer gewenste skills</div>
-                {alleSoftskills.map(s=>{
-                  const k='s-'+s.softskill; const sel=!!selectedDef[k]; const d=D[s.niveau||"Basis"]||D["Basis"];
-                  return <div key={k} className={"def-row "+(sel?"selected":"")} onClick={()=>setSelectedDef(p=>({...p,[k]:!p[k]}))}>
-                    <div className="def-check">{sel&&<span style={{color:"white",fontSize:10}}>✓</span>}</div>
-                    <span style={{width:5,height:5,borderRadius:"50%",background:"#c4860a",flexShrink:0}}/>
-                    <div style={{flex:1,fontSize:11}}>
-                      {s.softskill}
-                      {s.esco_code&&<span className="esco-badge">{s.esco_code}</span>}
-                    </div>
-                    <span style={{fontSize:9,padding:"2px 7px",borderRadius:2,border:"1px solid",background:d.k,color:d.t,borderColor:d.b,flexShrink:0}}>{NIVEAUS.indexOf(s.niveau||"Basis")+1}. {s.niveau||"Basis"}</span>
-                  </div>;
-                })}
-              </div>
+                  {(()=>{const d=D[s.niveau||"Gevorderd"];return <span style={{fontSize:9,padding:"2px 7px",borderRadius:2,border:"1px solid",background:d.k,color:d.t,borderColor:d.b,flexShrink:0}}>{s.niveau||"Gevorderd"}</span>;})()}
+                </div>;
+              })}
             </div>
-          </div>}
-        </main>
-      </div>
+          </div>
+        </div>}
+      </main>
     </div>
-  );
+  </>;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
