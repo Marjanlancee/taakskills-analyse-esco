@@ -369,13 +369,14 @@ function App() {
     softTaakMap.forEach(s => {
       rows.push(['Soft', s.softskill, s.niveauMax, s.taken.join(' | '), s.esco_definitie||'', s.esco_uri||'', s.bron||'', s.freq||'', s.belang||'']);
     });
-    // Bedrijfseigen skills
-    selHard.filter(s=>s.eigen).forEach(s => {
+    // Bedrijfseigen skills — alleen als vangnet-rij toevoegen als er nog GEEN echte ESCO-match is
+    // (anders staat de skill al correct met taak/definitie/uri in de rijen hierboven)
+    selHard.filter(s=>s.eigen&&!s.esco_code).forEach(s => {
       const escNaam = getEigenSkillNaam(s.skill)||s.skill;
       const niv = getEigenSkillNiveau(s.skill);
       rows.push(['Hard', escNaam, niv, getEigenTaken(s.skill).join(' | '), '', '', 'bedrijf', '', '']);
     });
-    selSoft.filter(s=>s.eigen).forEach(s => {
+    selSoft.filter(s=>s.eigen&&!s.esco_code).forEach(s => {
       const term = s.softskill||s.skill;
       const escNaam = getEigenSkillNaam(term)||term;
       const niv = getEigenSkillNiveau(term);
@@ -483,7 +484,7 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
           {stap>=2&&<button className="btn-main" onClick={()=>setStap(3)} style={{background:"#1a56db"}}>
             Stap 3: Definitieve skillset →
           </button>}
-          <button className="btn-ghost" onClick={()=>{setStap(0);setTaken([]);setSkillsData(null);setOverrides({});setSelectedDef({});setPdfTekst('');setPdfNaam('');setEigenTaken({});setEigenSkillNaam({});setEigenSkillNiveau({});}}>
+          <button className="btn-ghost" onClick={()=>{setStap(0);setTaken([]);setSkillsData(null);setOverrides({});setSelectedDef({});setPdfTekst('');setPdfNaam('');setEigenTaken({});setEigenSkillNaam({});setEigenSkillNiveau({});setBedrijf('');setEigenTaal('');setBronnen('');setBronnenStatus([]);setInput('');}}>
             ↺ Opnieuw beginnen
           </button>
         </>}
@@ -666,10 +667,10 @@ Vul één URL per regel in, altijd beginnend met https://. Max 5 bronnen.
                       <span className="sk-badge" style={{background:d.k,color:d.t,borderColor:d.b,fontSize:9}}>{niv}</span>
                     </div>
                     <div className="sl-wrap" style={{marginBottom:8}}>
-                      <input type="range" min={0} max={2} step={1} value={val}
-                        style={{background:`linear-gradient(to right,#c084fc 0%,#c084fc ${val*50}%,var(--border) ${val*50}%,var(--border) 100%)`}}
+                      <input type="range" min={0} max={4} step={1} value={val}
+                        style={{background:`linear-gradient(to right,#c084fc 0%,#c084fc ${val*25}%,var(--border) ${val*25}%,var(--border) 100%)`}}
                         onChange={e=>setEigenSkillNiveau(p=>({...p,[term]:NIVEAUS[parseInt(e.target.value)]}))}/>
-                      <div className="sl-labels"><span>Basis</span><span>Gevorderd</span><span>Expert</span></div>
+                      <div className="sl-labels"><span>Beginner</span><span>Basis</span><span>Gemiddeld</span><span>Gevorderd</span><span>Expert</span></div>
                     </div>
                     <div style={{fontSize:8,letterSpacing:".12em",textTransform:"uppercase",color:"#6b21a8",marginBottom:4}}>Gekoppelde taken (max 5)</div>
                     {[0,1,2,3,4].map(idx=><input key={idx} className="field" value={(eigenTaken[term]||[])[idx]||''} onChange={e=>setEigenTaak(term,idx,e.target.value)} placeholder={`Taak ${idx+1}...`} style={{marginBottom:3,fontSize:10,background:"white",borderColor:"#c084fc"}}/>)}
