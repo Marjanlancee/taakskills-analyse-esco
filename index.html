@@ -272,26 +272,47 @@ function App() {
         const st=skillsPerTaak.get(taak.id);
         const hs=st?(st.hardskills||[]).filter(s=>selHardNames.has(s.skill)):[];
         const ss=st?(st.softskills||[]).filter(s=>selSoftNames.has(s.softskill)):[];
-        hs.forEach(s=>{const key='h-'+s.skill;if(!wordSkillMap.has(key))wordSkillMap.set(key,{type:'Hard',naam:s.skill,code:s.esco_code||'',definitie:s.esco_definitie||'',niveau:getNiveau(taak.id,s.skill,s.niveau),taken:[]});wordSkillMap.get(key).taken.push(taak.taak);});
-        ss.forEach(s=>{const key='s-'+s.softskill;if(!wordSkillMap.has(key))wordSkillMap.set(key,{type:'Soft',naam:s.softskill,code:s.esco_code||'',definitie:s.esco_definitie||'',niveau:getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd'),taken:[]});wordSkillMap.get(key).taken.push(taak.taak);});
+        hs.forEach(s=>{
+          const key='h-'+s.skill;
+          const niv=getNiveau(taak.id,s.skill,s.niveau);
+          if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Hard',naam:s.skill,code:s.esco_code||'',definitie:s.esco_definitie||'',taken:[]});
+          wordSkillMap.get(key).taken.push({taak:taak.taak,niveau:niv});
+        });
+        ss.forEach(s=>{
+          const key='s-'+s.softskill;
+          const niv=getNiveau(taak.id,`soft-${s.softskill}`,s.niveau||'Gevorderd');
+          if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Soft',naam:s.softskill,code:s.esco_code||'',definitie:s.esco_definitie||'',taken:[],niveauMax:niv});
+          else if(NIVEAUS.indexOf(niv)>NIVEAUS.indexOf(wordSkillMap.get(key).niveauMax)) wordSkillMap.get(key).niveauMax=niv;
+          wordSkillMap.get(key).taken.push({taak:taak.taak,niveau:niv});
+        });
       });
       // Bedrijfseigen skills toevoegen met ESCO naam + taken
       selHard.filter(s=>s.eigen&&selHardNames.has(s.skill)).forEach(s=>{
         const key='h-'+s.skill;
         const escNaam = getEigenSkillNaam(s.skill)||s.skill;
         const niv = getEigenSkillNiveau(s.skill);
-        if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Hard',naam:escNaam,code:'',definitie:`Bedrijfsterm: ${s.skill}`,niveau:niv,taken:getEigenTaken(s.skill)});
+        if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Hard',naam:escNaam,code:'',definitie:`Bedrijfsterm: ${s.skill}`,taken:getEigenTaken(s.skill).map(t=>({taak:t,niveau:niv}))});
       });
       selSoft.filter(s=>s.eigen&&selSoftNames.has(s.softskill)).forEach(s=>{
         const term=s.softskill||s.skill;
         const key='s-'+term;
         const escNaam = getEigenSkillNaam(term)||term;
         const niv = getEigenSkillNiveau(term);
-        if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Soft',naam:escNaam,code:'',definitie:`Bedrijfsterm: ${term}`,niveau:niv,taken:getEigenTaken(term)});
+        if(!wordSkillMap.has(key)) wordSkillMap.set(key,{type:'Soft',naam:escNaam,code:'',definitie:`Bedrijfsterm: ${term}`,taken:getEigenTaken(term).map(t=>({taak:t,niveau:niv})),niveauMax:niv});
       });
-      const CW=[600,2800,700,3126,1800];const CH=['Type','Skill','Niveau','Gekoppelde taken','ESCO Definitie'];
+      const CW=[600,2800,1400,2426,1800];const CH=['Type','Skill','Niveau','Gekoppelde taken','ESCO Definitie'];
       let taakRijen=`<w:tr><w:trPr><w:trHeight w:val="360"/></w:trPr>${CH.map((h,i)=>`<w:tc><w:tcPr><w:tcW w:w="${CW[i]}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${KLEUR}"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="17"/><w:color w:val="FFFFFF"/></w:rPr><w:t>${h}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`;
-      let ri=0;wordSkillMap.forEach(s=>{const fill=ri%2===0?'EEF2F7':'FFFFFF';const hc=s.type==='Hard'?KLEUR:'C4860A';taakRijen+=`<w:tr>${[[s.type,hc,false,false],[s.naam,'',true,false],[s.niveau,'',false,false],null,[s.definitie?s.definitie.slice(0,250):'','444444',false,true]].map((cel,i)=>`<w:tc><w:tcPr><w:tcW w:w="${CW[i]}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr>${i===3?s.taken.map((t,j)=>`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">${j+1}. ${esc(t)}</w:t></w:r></w:p>`).join(''):`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>${cel[2]?'<w:b/>':''}${cel[1]?`<w:color w:val="${cel[1]}"/>`:''}${cel[3]?'<w:sz w:val="15"/>':'<w:sz w:val="17"/>'}</w:rPr><w:t xml:space="preserve">${esc(cel[0]||'')}</w:t></w:r></w:p>`}</w:tc>`).join('')}</w:tr>`;ri++;});
+      let ri=0;wordSkillMap.forEach(s=>{
+        const fill=ri%2===0?'EEF2F7':'FFFFFF';const hc=s.type==='Hard'?KLEUR:'C4860A';
+        let niveauWeergave, meerdereNiveaus=false;
+        if (s.type==='Soft') { niveauWeergave = s.niveauMax || ''; }
+        else {
+          const uniekeNiveaus=[...new Set(s.taken.map(t=>t.niveau))].sort((a,b)=>NIVEAUS.indexOf(a)-NIVEAUS.indexOf(b));
+          meerdereNiveaus = uniekeNiveaus.length>1;
+          niveauWeergave = meerdereNiveaus ? uniekeNiveaus.join(' / ') : (uniekeNiveaus[0]||'');
+        }
+        taakRijen+=`<w:tr>${[[s.type,hc,false,false],[s.naam,'',true,false],[niveauWeergave,'',false,false],null,[s.definitie?s.definitie.slice(0,250):'','444444',false,true]].map((cel,i)=>`<w:tc><w:tcPr><w:tcW w:w="${CW[i]}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr>${i===3?s.taken.map((t,j)=>`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">${j+1}. ${esc(t.taak)}${meerdereNiveaus?` — ${esc(t.niveau)}`:''}</w:t></w:r></w:p>`).join(''):`<w:p><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/>${cel[2]?'<w:b/>':''}${cel[1]?`<w:color w:val="${cel[1]}"/>`:''}${cel[3]?'<w:sz w:val="15"/>':'<w:sz w:val="17"/>'}</w:rPr><w:t xml:space="preserve">${esc(cel[0]||'')}</w:t></w:r></w:p>`}</w:tc>`).join('')}</w:tr>`;ri++;
+      });
       const h2=t=>`<w:p><w:pPr><w:spacing w:before="320" w:after="80"/><w:pBdr><w:bottom w:val="single" w:sz="8" w:space="4" w:color="${ACCENT}"/></w:pBdr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:sz w:val="28"/><w:color w:val="${KLEUR}"/></w:rPr><w:t>${t}</w:t></w:r></w:p>`;
       const bronP=t=>`<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`;
       const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${titelBlok}${h2('1. Functieoverzicht')}<w:p><w:pPr><w:spacing w:before="60" w:after="100"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${esc(samenvatting||'')}</w:t></w:r></w:p>${vergelijkbareTitels.length?`<w:p><w:pPr><w:spacing w:before="60" w:after="100"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="18"/><w:i/><w:color w:val="666666"/></w:rPr><w:t xml:space="preserve">Ook bekend als: ${esc(vergelijkbareTitels.join(' \u00b7 '))}</w:t></w:r></w:p>`:''}${omschrijvingBlok}${h2('2. Skillset per taak')}<w:tbl><w:tblPr><w:tblW w:w="9026" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="CCCCCC"/><w:left w:val="single" w:sz="4" w:color="CCCCCC"/><w:bottom w:val="single" w:sz="4" w:color="CCCCCC"/><w:right w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideH w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideV w:val="single" w:sz="4" w:color="CCCCCC"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="600"/><w:gridCol w:w="2800"/><w:gridCol w:w="700"/><w:gridCol w:w="3126"/><w:gridCol w:w="1800"/></w:tblGrid>${taakRijen}</w:tbl>${h2('3. Bronnen')}${bronP('ESCO database. ('+jaar+'). European Skills, Competences, Qualifications and Occupations. Geraadpleegd op '+datum+', van https://esco.ec.europa.eu')}${bronP('Anthropic. ('+jaar+'). Claude AI (claude-sonnet-4-6). Geraadpleegd op '+datum+', van https://www.anthropic.com')}${bronnen.trim()?bronnen.split('\n').filter(b=>b.trim()).map(b=>bronP(b.trim()+'. Geraadpleegd op '+datum+'.')).join(''):''}${pdfNaam?bronP(pdfNaam+' [PDF upload]. Geraadpleegd op '+datum+'.'):''}<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr></w:body></w:document>`;
