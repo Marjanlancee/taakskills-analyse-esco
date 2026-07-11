@@ -30,6 +30,20 @@ function selecteerRelevante(functietitel, taken, hard, soft) {
   return { topHard: gescoord.slice(0, 300).map(g => g.row), soft };
 }
 
+// Scoort skills specifiek op de tekst van ÉÉN taak (niet de hele functie), zodat brede
+// skills die toevallig vaak voorkomen niet als kandidaat opduiken bij taken waar ze niet bij passen.
+function scoreSkillsVoorTaak(taakTekst, skills, top = 8) {
+  const context = taakTekst.toLowerCase();
+  const gescoord = skills.map(row => {
+    const label = row[0].toLowerCase();
+    const woorden = label.split(/\s+/).filter(w => w.length > 3);
+    const score = woorden.filter(w => context.includes(w)).length;
+    return { row, score };
+  });
+  gescoord.sort((a, b) => b.score - a.score);
+  return gescoord.filter(g => g.score > 0).slice(0, top).map(g => g.row);
+}
+
 function herstelJson(json) {
   try { JSON.parse(json); return json; } catch { /**/ }
   const opens = [];
@@ -144,10 +158,16 @@ async function koppelSkills(functietitel, taken, bedrijf, eigenTaal, apiKey) {
   const { topHard, soft: softList } = selecteerRelevante(functietitel, taken, hard, soft);
   const hardLijst = topHard.map(r => `${r[0]}|${r[1]}`).join('\n');
   const softLijst = softList.map(r => `${r[0]}|${r[1]}`).join('\n');
-  const takenTekst = taken.map(t => `- ${t.id}: ${t.taak}`).join('\n');
+  const takenTekst = taken.map(t => {
+    const kandidaten = scoreSkillsVoorTaak(t.taak, hard, 8);
+    const kandidatenTekst = kandidaten.length
+      ? kandidaten.map(r => r[0]).join(', ')
+      : '(geen sterke specifieke kandidaat gevonden op trefwoorden — kies alleen uit de algemene lijst als er echt een goede match bij zit, anders 0 hardskills voor deze taak)';
+    return `- ${t.id}: ${t.taak}\n  Sterkste specifieke kandidaten voor DEZE taak (prioriteer deze boven de algemene lijst): ${kandidatenTekst}`;
+  }).join('\n');
   const resultaat = await vraagClaude(
-    'Je bent ESCO-expert en skills-analist. Geef ALLEEN geldige JSON terug, geen markdown.\nKRITIEKE REGEL: gebruik skills UITSLUITEND uit de meegestuurde ESCO-lijsten.\nGebruik het exacte label en de exacte code. Verzin NOOIT zelf skills of codes.\nMAX 3 hardskills en 2 softskills per taak.\nBELANGRIJK VOOR BEDRIJFSEIGEN TERMEN: kies voor elke bedrijfseigen term (zie BEDRIJFSEIGEN TERMEN) ÉÉN vaste ESCO-skill die het beste past, en gebruik exact diezelfde skill-naam en code voor die term bij ELKE taak waar hij relevant is. Kies nooit voor verschillende taken een andere ESCO-skill voor dezelfde bedrijfseigen term — dit veroorzaakt dubbele/inconsistente rijen in de uiteindelijke skillset.\nBELANGRIJK TEGEN GENERIEKE MATCHES: kies voor elke taak de SPECIFIEKSTE en meest onderscheidende passende skill uit de lijst, niet de breedste/generiekste die toevallig op veel taken past. Vermijd dat één brede skill (zoals een algemene "techniek voor..."-skill) aan veel verschillende, inhoudelijk uiteenlopende taken wordt gekoppeld — zoek liever per taak naar een skill die specifiek bij die taak past, ook als dat betekent dat je minder vaak dezelfde skill hergebruikt.',
-    `Koppel ESCO-skills aan taken voor: ${functietitel}\n\nTAKEN:\n${takenTekst}\n${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}\n${eigenTaal ? `BEDRIJFSEIGEN TERMEN (eigen:true, gebruik per term ALTIJD dezelfde ESCO-skill): ${eigenTaal}` : ''}\n\nBESCHIKBARE HARDSKILLS (label|code):\n${hardLijst}\n\nBESCHIKBARE SOFTSKILLS (label|code):\n${softLijst}\n\nJSON (direct, geen markdown):\n{\n  "kerncompetenties": [{"naam":"string","omschrijving":"string","toelichting":"string"}],\n  "taken": [{\n    "id": "T01",\n    "hardskills": [{"skill": "exacte label","esco_code": "exacte 8-karakter code","niveau": "Basis|Gevorderd|Expert","bron": "profiel|beroep|bedrijf","toelichting": "waarom relevant","eigen": false}],\n    "softskills": [{"softskill": "exacte label","esco_code": "exacte 8-karakter code","niveau": "Basis|Gevorderd|Expert","bron": "profiel|beroep|bedrijf","toelichting": "waarom relevant","eigen": false}]\n  }]\n}`,
+    'Je bent ESCO-expert en skills-analist. Geef ALLEEN geldige JSON terug, geen markdown.\nKRITIEKE REGEL: gebruik skills UITSLUITEND uit de meegestuurde ESCO-lijsten.\nGebruik het exacte label en de exacte code. Verzin NOOIT zelf skills of codes.\nMAX 2 hardskills en 1 softskill per taak — kies liever minder maar precieze skills dan het maximum vol te maken.\nGEEN GEFORCEERDE MATCH: het is prima als een taak 0 hardskills of 0 softskills krijgt wanneer er geen goede match is. Verzin nooit een skill die niet echt bij de taak past, alleen om het maximum te vullen.\nBELANGRIJK VOOR BEDRIJFSEIGEN TERMEN: kies voor elke bedrijfseigen term (zie BEDRIJFSEIGEN TERMEN) ÉÉN vaste ESCO-skill die het beste past, en gebruik exact diezelfde skill-naam en code voor die term bij ELKE taak waar hij relevant is. Kies nooit voor verschillende taken een andere ESCO-skill voor dezelfde bedrijfseigen term — dit veroorzaakt dubbele/inconsistente rijen in de uiteindelijke skillset.\nBELANGRIJK TEGEN GENERIEKE MATCHES: kies voor elke taak de SPECIFIEKSTE en meest onderscheidende passende skill uit de lijst, niet de breedste/generiekste die toevallig op veel taken past. Elke taak heeft een eigen regel "Sterkste specifieke kandidaten voor DEZE taak" — geef die duidelijk voorrang boven de algemene BESCHIKBARE HARDSKILLS-lijst, tenzij de algemene lijst een aantoonbaar betere match bevat. Vermijd dat één brede skill aan veel verschillende, inhoudelijk uiteenlopende taken wordt gekoppeld.\nSOFTSKILL-DIVERSITEIT: verken de volledige softskills-lijst en kies de skill die het beste bij de specifieke taak past, in plaats van steeds terug te vallen op dezelfde paar algemene termen (zoals "zelfstandig werken" of "verantwoordelijkheid nemen") als er een specifiekere optie in de lijst staat die beter aansluit bij wat de taak inhoudelijk vraagt.',
+    `Koppel ESCO-skills aan taken voor: ${functietitel}\n\nTAKEN:\n${takenTekst}\n${bedrijf ? `BEDRIJF: ${bedrijf}` : ''}\n${eigenTaal ? `BEDRIJFSEIGEN TERMEN (eigen:true, gebruik per term ALTIJD dezelfde ESCO-skill): ${eigenTaal}` : ''}\n\nALGEMENE BESCHIKBARE HARDSKILLS (label|code) — vul aan met deze lijst als de taak-specifieke kandidaten hierboven niet passen:\n${hardLijst}\n\nBESCHIKBARE SOFTSKILLS (label|code):\n${softLijst}\n\nJSON (direct, geen markdown):\n{\n  "kerncompetenties": [{"naam":"string","omschrijving":"string","toelichting":"string"}],\n  "taken": [{\n    "id": "T01",\n    "hardskills": [{"skill": "exacte label","esco_code": "exacte 8-karakter code","niveau": "Basis|Gevorderd|Expert","bron": "profiel|beroep|bedrijf","toelichting": "waarom relevant","eigen": false}],\n    "softskills": [{"softskill": "exacte label","esco_code": "exacte 8-karakter code","niveau": "Basis|Gevorderd|Expert","bron": "profiel|beroep|bedrijf","toelichting": "waarom relevant","eigen": false}]\n  }]\n}`,
     apiKey
   );
   const escoLookup = {};
