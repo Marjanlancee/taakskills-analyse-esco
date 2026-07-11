@@ -27,7 +27,11 @@ function selecteerRelevante(functietitel, taken, hard, soft) {
     return { row, score };
   });
   gescoord.sort((a, b) => b.score - a.score);
-  return { topHard: gescoord.slice(0, 300).map(g => g.row), soft };
+  // Vereis minstens 2 overlappende woorden om toevalstreffers (één los gedeeld woord) te vermijden.
+  // Val terug op score>=1 alleen als er te weinig sterkere kandidaten zijn.
+  const sterk = gescoord.filter(g => g.score >= 2);
+  const gekozen = sterk.length >= 150 ? sterk : gescoord.filter(g => g.score >= 1);
+  return { topHard: gekozen.slice(0, 300).map(g => g.row), soft };
 }
 
 // Scoort skills specifiek op de tekst van ÉÉN taak (niet de hele functie), zodat brede
@@ -41,7 +45,10 @@ function scoreSkillsVoorTaak(taakTekst, skills, top = 8) {
     return { row, score };
   });
   gescoord.sort((a, b) => b.score - a.score);
-  return gescoord.filter(g => g.score > 0).slice(0, top).map(g => g.row);
+  // Zelfde principe: minstens 2 overlappende woorden, tenzij dat niets oplevert.
+  const sterk = gescoord.filter(g => g.score >= 2);
+  const gekozen = sterk.length > 0 ? sterk : gescoord.filter(g => g.score >= 1);
+  return gekozen.slice(0, top).map(g => g.row);
 }
 
 function herstelJson(json) {
